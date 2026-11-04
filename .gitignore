@@ -1,0 +1,50 @@
+
+# C++ / CMake
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+
+# Node.js / React
+node_modules/
+dist/
+.next/
+coverage/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
