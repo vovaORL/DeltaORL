@@ -72,6 +72,17 @@ void ClusterAggregator::rebuild_candles_from_history() {
     }
 }
 
+void ClusterAggregator::trim_tick_history() {
+    if (tick_history_.size() <= 300000) return;
+    // A day is the largest supported chart period. Never evict part of it:
+    // otherwise a timeframe rebuild changes Open, extremes and volume.
+    const int64_t cutoff = (tick_history_[tick_history_.size() - 300000].time_msc / 86400000) * 86400000;
+    while (!tick_history_.empty() && tick_history_.front().time_msc < cutoff) {
+        history_base_delta_ += static_cast<int>(tick_history_.front().side) * tick_history_.front().volume;
+        tick_history_.pop_front();
+    }
+}
+
 void ClusterAggregator::process_tick(const Tick& tick) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!std::isfinite(tick.price) || !std::isfinite(tick.volume) || tick.price <= 0.0 || tick.volume <= 0.0 || tick.time_msc <= 0 || tick.symbol != symbol_ || tick.price / tick_size_ > 9e15) return;
@@ -81,21 +92,15 @@ void ClusterAggregator::process_tick(const Tick& tick) {
         auto it = std::upper_bound(tick_history_.begin(), tick_history_.end(), tick.time_msc,
             [](int64_t time, const Tick& value) { return time < value.time_msc; });
         tick_history_.insert(it, tick);
-        if (tick_history_.size() > 300000) {
-            history_base_delta_ += static_cast<int>(tick_history_.front().side) * tick_history_.front().volume;
-            tick_history_.pop_front();
-        }
+        trim_tick_history();
         rebuild_candles_from_history();
         live_dirty_ = true;
         return;
     }
 
-    // Buffer raw ticks for instant timeframe recalculation (up to 300,000 ticks)
+    // Keep at least 300,000 ticks, extending retention to a complete day.
     tick_history_.push_back(tick);
-    if (tick_history_.size() > 300000) {
-        history_base_delta_ += static_cast<int>(tick_history_.front().side) * tick_history_.front().volume;
-        tick_history_.pop_front();
-    }
+    trim_tick_history();
 
     aggregate_tick_internal(tick);
     live_dirty_ = true;

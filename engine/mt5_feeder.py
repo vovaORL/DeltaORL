@@ -95,6 +95,7 @@ class MT5DirectFeeder:
         self.last_tick_time_msc = 0
         self.ticks_at_cursor = 0
         self.last_price = 0.0
+        self.chart_mode = 0  # SYMBOL_CHART_MODE_BID; refreshed for each symbol.
         self.last_side = 1
         self.book_symbol = None
         self.last_book = 0.0
@@ -213,7 +214,9 @@ class MT5DirectFeeder:
             flags = int(t["flags"])
             bid, ask, last = float(t["bid"]), float(t["ask"]), float(t["last"])
             volume = float(t["volume_real"]) if t["volume_real"] > 0 else float(t["volume"] if t["volume"] > 0 else 1)
-            price = last if last > 0 else ((bid + ask) / 2 if bid > 0 and ask > 0 else max(bid, ask))
+            # Match the symbol's MT5 chart, including symbols with a nonzero
+            # Last quote whose chart is nevertheless configured to use Bid.
+            price = last if self.chart_mode == 1 else bid
             if not all(math.isfinite(v) for v in (price, volume, bid, ask)) or price <= 0 or volume <= 0:
                 continue
             if flags & 32:
@@ -236,6 +239,15 @@ class MT5DirectFeeder:
         if lines:
             self.send_line("".join(lines))
 
+    def tick_range_end(self):
+        latest = mt5.symbol_info_tick(self.current_symbol)
+        if latest is None or latest.time_msc <= 0:
+            return None
+        # Use the source clock, not the PC clock. Include the entire latest
+        # second because some MT5 builds truncate datetime arguments to seconds.
+        # Re-querying that second also retains additional ticks at the cursor.
+        return datetime.fromtimestamp(int(latest.time_msc) // 1000 + 1, timezone.utc)
+
     def init_symbol(self, symbol):
         self.release_book()
         self.initialized = False
@@ -252,6 +264,7 @@ class MT5DirectFeeder:
             self.report_error(f"Символ {symbol} не знайдено або недоступний у MT5.")
             return False
         self.current_symbol = info.name
+        self.chart_mode = int(info.chart_mode)
         self.last_tick_time_msc = 0
         self.ticks_at_cursor = 0
         self.last_price = 0
@@ -263,12 +276,22 @@ class MT5DirectFeeder:
         self.send_line(f"INFO;{broker}\n")
         step, digits = self.get_cluster_tick_size(info.name, info)
         self.send_line(f"HELLO;{info.name};{step:.12g};{digits}\n")
-        end = datetime.now(timezone.utc)
-        ticks = mt5.copy_ticks_range(info.name, end - timedelta(days=5), end, mt5.COPY_TICKS_ALL)
-        if ticks is None or len(ticks) < 1000:
-            ticks = mt5.copy_ticks_range(info.name, end - timedelta(days=10), end, mt5.COPY_TICKS_ALL)
+        end = self.tick_range_end()
+        ticks = None
+        if end is not None:
+            start = (end - timedelta(days=5)).replace(hour=0, minute=0, second=0, microsecond=0)
+            ticks = mt5.copy_ticks_range(info.name, start, end, mt5.COPY_TICKS_ALL)
+            if ticks is None or len(ticks) < 1000:
+                start = (end - timedelta(days=10)).replace(hour=0, minute=0, second=0, microsecond=0)
+                ticks = mt5.copy_ticks_range(info.name, start, end, mt5.COPY_TICKS_ALL)
         if ticks is not None and len(ticks):
-            self.emit_ticks(ticks[-200000:], replay=True)
+            # Extend the nominal tick limit back to midnight. Cutting by count
+            # creates a partial first candle on every timeframe up to D1.
+            index = max(0, len(ticks) - 200000)
+            day_start = int(ticks[index]["time_msc"]) // 86400000 * 86400000
+            while index > 0 and int(ticks[index - 1]["time_msc"]) >= day_start:
+                index -= 1
+            self.emit_ticks(ticks[index:], replay=True)
         else:
             logger.info("No tick history; waiting for live quotes")
         self.send_line("READY\n")
@@ -322,7 +345,15 @@ class MT5DirectFeeder:
             self.initialized = False
             self.report_error("MT5 не підключено до брокера. Очікування відновлення з'єднання.")
             return
-        end = datetime.now(timezone.utc)
+        end = self.tick_range_end()
+        if end is None:
+            return  # No source timestamp yet; retry without inventing a clock.
+        if int(end.timestamp()) * 1000 <= self.last_tick_time_msc:
+            # A source clock rollback makes the old cursor invalid. Reuse the
+            # existing HELLO/history reload so the engine replaces that stream.
+            logger.warning("MT5 tick clock moved behind cursor; reloading history")
+            self.initialized = False
+            return
         start_ms = self.last_tick_time_msc or int(end.timestamp() * 1000) - 5000
         # Start at the whole second to retain all records at the cursor even
         # with MT5 builds that round datetime parameters to seconds.

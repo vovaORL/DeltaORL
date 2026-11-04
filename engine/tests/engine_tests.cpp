@@ -56,6 +56,22 @@ int main() {
         retained.set_timeframe(120);
         require(retained.get_cumulative_delta() == 300001, "CVD base lost when raw history evicts ticks");
 
+        ClusterAggregator complete("TEST", 1, 900);
+        complete.process_tick(tick(86400001, 90, 2, TradeSide::Sell));
+        complete.process_tick(tick(86400002, 110, 3));
+        for (int i = 0; i < 300000; ++i) complete.process_tick(tick(86400003 + i, 100, 1));
+        auto before_rebuild = complete.serialize_snapshot_json();
+        complete.set_timeframe(60);
+        complete.set_timeframe(900);
+        require(complete.serialize_snapshot_json() == before_rebuild, "Tick limit truncated the first retained candle");
+        complete.process_tick(tick(172800001, 120, 1));
+        for (int i = 0; i < 300000; ++i) complete.process_tick(tick(172800002 + i, 121, 1));
+        const double complete_cvd = complete.get_cumulative_delta();
+        complete.set_timeframe(86400);
+        require(complete.get_candle_count() == 1, "Whole expired day was not evicted");
+        require(complete.get_cumulative_delta() == complete_cvd, "Whole-day eviction lost CVD");
+        require(complete.serialize_snapshot_json().find("\"o\":120") != std::string::npos, "Retained day lost its opening tick");
+
         auto fixture = std::filesystem::current_path() / "engine_test_ticks.csv";
         { std::ofstream file(fixture); file << "<DATE>\t<TIME>\t<BID>\t<ASK>\t<LAST>\t<VOLUME>\t<FLAGS>\n2026.11.02\t12:00:00.001\t1.1\t1.2\t1.2\t5\t32\n2026.11.02\t12:00:00.002\t\t1.3\t1.1\t2\t64\n"; }
         auto ticks = MT5FileReader::parse_ticks_csv(fixture, "TEST");

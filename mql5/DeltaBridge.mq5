@@ -68,7 +68,7 @@ string TickLine(const MqlTick &tick)
       g_cursorCount = 0;
    }
    g_cursorCount++;
-   double price = tick.last > 0 ? tick.last : (tick.bid > 0 && tick.ask > 0 ? (tick.bid + tick.ask) / 2 : MathMax(tick.bid, tick.ask));
+   double price = SymbolInfoInteger(_Symbol, SYMBOL_CHART_MODE) == SYMBOL_CHART_MODE_LAST ? tick.last : tick.bid;
    if(price <= 0) return "";
    int side = g_previousSide;
    if((tick.flags & TICK_FLAG_BUY) != 0) side = 1;
@@ -96,11 +96,18 @@ bool SendHistoricalTicks()
    int count = 0;
    if(InpHistoryDays > 0)
    {
-      count = CopyTicksRange(_Symbol, ticks, COPY_TICKS_ALL, (ulong)(TimeCurrent() - InpHistoryDays * 86400) * 1000, 0);
-      if(count <= 0) count = CopyTicks(_Symbol, ticks, COPY_TICKS_ALL, 0, 50000);
+      ulong startSeconds = (ulong)(TimeCurrent() - InpHistoryDays * 86400);
+      startSeconds = startSeconds / 86400 * 86400;
+      count = CopyTicksRange(_Symbol, ticks, COPY_TICKS_ALL, startSeconds * 1000, 0);
+      if(count <= 0) count = CopyTicksRange(_Symbol, ticks, COPY_TICKS_ALL, (ulong)TimeCurrent() / 86400 * 86400000, 0);
    }
    string batch = "";
    int start = MathMax(0, count - 200000);
+   if(count > 0)
+   {
+      ulong dayStart = (ulong)ticks[start].time_msc / 86400000 * 86400000;
+      while(start > 0 && (ulong)ticks[start - 1].time_msc >= dayStart) start--;
+   }
    for(int i = start; i < count; i++)
    {
       batch += TickLine(ticks[i]);

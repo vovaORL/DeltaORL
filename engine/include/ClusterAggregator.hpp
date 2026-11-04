@@ -32,6 +32,7 @@ public:
 private:
     void aggregate_tick_internal(const Tick& tick);
     void rebuild_candles_from_history();
+    void trim_tick_history();
     void update_candle_metrics(Candle& candle);
     int64_t to_tick_index(double price) const;
     double from_tick_index(int64_t index) const;
