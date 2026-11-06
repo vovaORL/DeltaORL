@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { applySharedVolumeColors } from '../chart/deltaCell';
 import { X, Check, FolderOpen, Database, Zap, Download, CheckCircle, Palette, Sliders, RotateCcw, Bookmark, Plus, Trash2, Copy, FileText } from 'lucide-react';
 import {
   MT5TerminalInfo,
@@ -103,8 +104,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleSaveTheme = (newTheme: ChartThemeSettings) => {
-    setTheme(newTheme);
-    onSaveChartTheme(newTheme);
+    const buyerColor = newTheme.clusterBuyerColor !== theme.clusterBuyerColor
+      ? newTheme.clusterBuyerColor : newTheme.volumeDeltaBuyerColor;
+    const sellerColor = newTheme.clusterSellerColor !== theme.clusterSellerColor
+      ? newTheme.clusterSellerColor : newTheme.volumeDeltaSellerColor;
+    const sharedTheme = applySharedVolumeColors(newTheme, buyerColor, sellerColor);
+    // Candle overrides belong to the selected palette, not the saved base colors.
+    sharedTheme.bullishCandleColor = newTheme.bullishCandleColor;
+    sharedTheme.bearishCandleColor = newTheme.bearishCandleColor;
+    sharedTheme.bearishCandleBorder = newTheme.bearishCandleBorder;
+    setTheme(sharedTheme);
+    onSaveChartTheme(sharedTheme);
   };
 
   const handleUpdateHeight = (key: keyof IndicatorHeights, val: number) => {
@@ -721,10 +731,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* 2. Стиль палітри гістограми об'ємів (Чорно-білий монохром vs Контрастний сталевий) */}
               <div style={{ background: '#0D111A', border: '1px solid #1E293B', borderRadius: '8px', padding: '14px' }}>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#FFFFFF', marginBottom: 4 }}>
-                  Стиль гістограми об'ємів кластерів (Volume Histogram Palette)
+                  Спільна палітра кластерів та обсягів
                 </div>
                 <div style={{ fontSize: '11px', color: '#94A3B8', marginBottom: 12 }}>
-                  Оберіть стиль відображення градієнта об'єму для максимальної чіткості сприйняття
+                  Вибрана палітра застосовується до Bid/Ask, дельти, Volume та горизонтальних і вертикальних обсягів.
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {/* Option 1: Чорно-білий монохром */}
@@ -794,6 +804,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       Сучасна теплокарта в сталево-синіх тонах з блакитним підсвічуванням піків.
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveTheme({ ...theme, volumeHistogramPalette: 'BLACK' })}
+                    aria-pressed={theme.volumeHistogramPalette === 'BLACK'}
+                    style={{
+                      background: '#101216', border: theme.volumeHistogramPalette === 'BLACK' ? '2px solid #9299A6' : '1px solid #343943',
+                      borderRadius: 8, padding: 12, color: '#CBD0D8', textAlign: 'left', cursor: 'pointer'
+                    }}
+                  >
+                    <strong>Чорний графіт</strong>
+                    <span style={{ display: 'flex', gap: 4, margin: '8px 0' }}>
+                      {['#171A20', '#22262E', '#343943', '#565D68'].map(color => (
+                        <span key={color} style={{ background: color, width: '25%', height: 24, border: '1px solid #414752', borderRadius: 2 }} />
+                      ))}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#9299A6' }}>Чорна основа, темні графітові клітинки та стримані сірі контури.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveTheme({ ...theme, volumeHistogramPalette: 'DELTA' })}
+                    aria-pressed={theme.volumeHistogramPalette === 'DELTA'}
+                    style={{
+                      width: '100%', padding: '12px',
+                      background: theme.volumeHistogramPalette === 'DELTA' ? '#161D2B' : '#0F1218',
+                      border: theme.volumeHistogramPalette === 'DELTA' ? '2px solid #00F59B' : '1px solid #232B3B',
+                      borderRadius: '8px', color: '#FFFFFF', textAlign: 'left', cursor: 'pointer'
+                    }}
+                  >
+                    <strong>Обсяг за кольором дельти</strong>
+                    <span style={{ display: 'flex', gap: 4, margin: '8px 0' }}>
+                      {[theme.volumeDeltaBuyerColor || '#228B68', theme.volumeDeltaSellerColor || '#A62639', theme.volumeDeltaBuyerColor || '#228B68', theme.volumeDeltaSellerColor || '#A62639'].map((color, index) => (
+                        <span key={index} style={{ background: color, width: `${18 + index * 5}%`, height: 14, borderRadius: 2 }} />
+                      ))}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                      Ширина та числа — обсяг. Колір — знак дельти: плюс зелений, мінус червоний, нуль порожній.
+                    </span>
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 12 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#CBD5E1', fontSize: 12 }}>
+                    Покупці / додатна дельта — усі режими
+                    <input
+                      type="color"
+                      value={theme.volumeDeltaBuyerColor || '#228B68'}
+                      onChange={e => handleSaveTheme({ ...theme, volumeDeltaBuyerColor: e.target.value })}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#CBD5E1', fontSize: 12 }}>
+                    Продавці / від’ємна дельта — усі режими
+                    <input
+                      type="color"
+                      value={theme.volumeDeltaSellerColor || '#A62639'}
+                      onChange={e => handleSaveTheme({ ...theme, volumeDeltaSellerColor: e.target.value })}
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -851,6 +917,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       }}></span>
                     </span>
                   </label>
+                </div>
+
+                <div style={{ background: '#131824', border: '1px solid #232B3B', borderRadius: 6, padding: 12, marginBottom: 14 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#FFFFFF', fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={theme.showClusterBorders ?? false}
+                      onChange={e => handleSaveTheme({ ...theme, showClusterBorders: e.target.checked })}
+                    />
+                    Обводка клітинок кластерів
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#CBD5E1', fontSize: 12 }}>
+                      Колір
+                      <input type="color" value={theme.clusterBorderColor || '#69717D'} disabled={!theme.showClusterBorders}
+                        onChange={e => handleSaveTheme({ ...theme, clusterBorderColor: e.target.value })} />
+                    </label>
+                    <label style={{ color: '#CBD5E1', fontSize: 12 }}>
+                      Товщина: {theme.clusterBorderWidth ?? 1} px
+                      <input type="range" min={0.5} max={4} step={0.5} value={theme.clusterBorderWidth ?? 1}
+                        disabled={!theme.showClusterBorders}
+                        onChange={e => handleSaveTheme({ ...theme, clusterBorderWidth: Number(e.target.value) })}
+                        style={{ display: 'block', marginTop: 6 }} />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Font Size Selector */}
@@ -972,12 +1063,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
                         type="color"
-                        value={theme.clusterBuyerColor}
+                        value={theme.volumeDeltaBuyerColor || '#228B68'}
                         onChange={(e) => handleSaveTheme({ ...theme, clusterBuyerColor: e.target.value })}
                         style={{ width: 34, height: 30, background: 'transparent', border: 'none', cursor: 'pointer' }}
                       />
                       <span style={{ fontSize: '12px', color: '#72F0BC', fontFamily: 'monospace' }}>
-                        {theme.clusterBuyerColor}
+                        {theme.volumeDeltaBuyerColor || '#228B68'}
                       </span>
                     </div>
                   </div>
@@ -988,12 +1079,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
                         type="color"
-                        value={theme.clusterSellerColor}
+                        value={theme.volumeDeltaSellerColor || '#A62639'}
                         onChange={(e) => handleSaveTheme({ ...theme, clusterSellerColor: e.target.value })}
                         style={{ width: 34, height: 30, background: 'transparent', border: 'none', cursor: 'pointer' }}
                       />
                       <span style={{ fontSize: '12px', color: '#FFA0AC', fontFamily: 'monospace' }}>
-                        {theme.clusterSellerColor}
+                        {theme.volumeDeltaSellerColor || '#A62639'}
                       </span>
                     </div>
                   </div>

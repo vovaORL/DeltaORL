@@ -66,7 +66,7 @@ export const defaultIndicatorHeights: IndicatorHeights = {
   stoch: 65
 };
 
-export type VolumeHistogramPalette = 'STEEL_BLUE' | 'MONOCHROME';
+export type VolumeHistogramPalette = 'STEEL_BLUE' | 'MONOCHROME' | 'DELTA' | 'BLACK';
 export type CandleColorMode = 'PRICE' | 'DELTA';
 export type GridLineStyle = 'DASHED' | 'DOTTED' | 'SOLID' | 'OFF';
 export type ClusterFontSize = 'SMALL' | 'MEDIUM' | 'LARGE';
@@ -85,8 +85,13 @@ export interface ChartThemeSettings {
 
   // --- Clusters & Footprint ---
   volumeHistogramPalette: VolumeHistogramPalette;
+  volumeDeltaBuyerColor: string;
+  volumeDeltaSellerColor: string;
   clusterBarRounding: number; // 0 to 6px
   clusterBarOpacity: number; // 0.3 to 1.0 (default 1.0)
+  showClusterBorders: boolean;
+  clusterBorderColor: string;
+  clusterBorderWidth: number;
   clusterSpacing: number; // vertical spacing between levels 0 to 3px (default 1)
   showClusterNumbers: boolean;
   clusterFontSize: ClusterFontSize;
@@ -135,8 +140,13 @@ export const defaultChartTheme: ChartThemeSettings = {
 
   // Clusters & Footprint
   volumeHistogramPalette: 'MONOCHROME',
+  volumeDeltaBuyerColor: '#228B68',
+  volumeDeltaSellerColor: '#A62639',
   clusterBarRounding: 0,
   clusterBarOpacity: 1.0,
+  showClusterBorders: false,
+  clusterBorderColor: '#69717D',
+  clusterBorderWidth: 1,
   clusterSpacing: 1,
   showClusterNumbers: true,
   clusterFontSize: 'MEDIUM',

@@ -115,6 +115,8 @@ function createWindow() {
     }
   });
 
+  // Remove the native menu entirely so Alt cannot reveal it.
+  win.setMenu(null);
   mainWindow = win;
   win.maximize();
 

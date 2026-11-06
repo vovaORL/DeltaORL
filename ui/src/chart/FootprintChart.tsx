@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { computeIndicators } from './indicators';
+import { applySharedVolumeColors, getDeltaCellColor, getProfileColors } from './deltaCell';
 import { Candle, ClusterDisplayMode, ChartThemeSettings, IndicatorHeights, defaultIndicatorHeights } from '../types';
 
 interface FootprintChartProps {
@@ -30,6 +31,14 @@ interface MeasureState {
   currentPrice: number;
   currentCandleTime: number;
 }
+
+const TIME_AXIS_HEIGHT = 30;
+const axisTimeFormatter = new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const axisDateFormatter = new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: 'short' });
+const cursorTimeFormatter = new Intl.DateTimeFormat('uk-UA', {
+  day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+});
 
 type PanelResizeTarget = 'VOLUME' | 'CVD' | 'RSI' | 'STOCH' | null;
 
@@ -156,7 +165,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     const rsiH = p.showRSI ? indH.rsi : 0;
     const stochH = p.showStochastic ? indH.stoch : 0;
     const bottomTotal = volH + cvdH + rsiH + stochH;
-    const chartH = Math.max(80, height - bottomTotal);
+    const chartH = Math.max(80, height - TIME_AXIS_HEIGHT - bottomTotal);
 
     const dividers: { type: 'VOLUME' | 'CVD' | 'RSI' | 'STOCH'; y: number }[] = [];
     let curY = chartH;
@@ -192,7 +201,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     const cvdHeight = p.showCVD ? indH.cvd : 0;
     const rsiHeight = p.showRSI ? indH.rsi : 0;
     const stochHeight = p.showStochastic ? indH.stoch : 0;
-    const chartHeight = Math.max(100, containerH - volumeHeight - cvdHeight - rsiHeight - stochHeight);
+    const chartHeight = Math.max(100, containerH - TIME_AXIS_HEIGHT - volumeHeight - cvdHeight - rsiHeight - stochHeight);
     const priceScaleWidth = 64;
 
     const candlePitch = vp.candleWidth + vp.candleSpacing;
@@ -281,7 +290,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
 
     const vp = viewportRef.current;
     const p = propsRef.current;
-    const theme = p.chartTheme;
+    const theme = applySharedVolumeColors(p.chartTheme);
     const currentCandles = candlesRef.current;
     const crosshair = crosshairRef.current;
 
@@ -291,7 +300,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     const cvdHeight = p.showCVD ? indH.cvd : 0;
     const rsiHeight = p.showRSI ? indH.rsi : 0;
     const stochHeight = p.showStochastic ? indH.stoch : 0;
-    const chartHeight = Math.max(80, height - volumeHeight - cvdHeight - rsiHeight - stochHeight);
+    const chartHeight = Math.max(80, height - TIME_AXIS_HEIGHT - volumeHeight - cvdHeight - rsiHeight - stochHeight);
     const chartCenterY = chartHeight / 2;
 
     // Layout Widths (Price Scale & Profile)
@@ -433,9 +442,10 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       // --- Candlestick Bar (User Configurable Dimensions) ---
       const configuredBarW = theme.candlestickWidth ?? 8;
       const configuredBarGap = theme.candlestickGap ?? 5;
-      const barW = Math.max(3, Math.min(26, configuredBarW));
-      const barGap = Math.max(1, Math.min(20, configuredBarGap));
-      const barX = candleX - barW - barGap;
+      const isBidAsk = p.displayMode === 'BID_ASK';
+      const barW = Math.max(3, Math.min(26, configuredBarW, isBidAsk ? vp.candleWidth / 4 : 26));
+      const barGap = Math.max(1, Math.min(20, configuredBarGap, isBidAsk ? vp.candleWidth / 12 : 20));
+      const barX = isBidAsk ? candleX + (vp.candleWidth - barW) / 2 : candleX - barW - barGap;
       const barCenter = barX + barW / 2;
 
       // 1. Upper Shadow (Wick)
@@ -520,6 +530,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
 
         const isPOC = Math.abs(price - c.poc) < (p.tickSize * 0.5);
         const totalVol = bidVol + askVol;
+        // Only the optional volume delta palette hides balanced levels.
+        if (p.displayMode === 'VOLUME' && theme.volumeHistogramPalette === 'DELTA' && askVol - bidVol === 0) return;
 
         // Do not draw anything for empty zero-volume levels unless it's POC
         if (totalVol <= 0 && !isPOC) return;
@@ -536,32 +548,30 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
 
         if (p.displayMode === 'BID_ASK') {
           const halfW = vp.candleWidth / 2;
-          const bidBarW = bidVol > 0 ? Math.min(halfW - 2, (bidVol / maxClusterVol) * (halfW - 2)) : 0;
-          const askBarW = askVol > 0 ? Math.min(halfW - 2, (askVol / maxClusterVol) * (halfW - 2)) : 0;
+          const bidEndX = barX - barGap;
+          const askStartX = barX + barW + barGap;
+          const sideWidth = Math.max(1, halfW - barW / 2 - barGap - 2);
+          const bidBarW = bidVol > 0 ? Math.min(sideWidth, (bidVol / maxClusterVol) * sideWidth) : 0;
+          const askBarW = askVol > 0 ? Math.min(sideWidth, (askVol / maxClusterVol) * sideWidth) : 0;
           const isSellImb = (theme.showImbalanceHighlights !== false) && Boolean(sellImb);
           const isBuyImb = (theme.showImbalanceHighlights !== false) && Boolean(buyImb);
 
           // Bid Volume Bar (Sellers / Bears)
           if (bidVol > 0) {
             ctx.fillStyle = isSellImb ? (theme.sellImbalanceColor || '#FF3B69') : theme.clusterSellerColor;
-            ctx.fillRect(candleX + halfW - bidBarW, levelY + 1, bidBarW, Math.max(1, levelPixelH - 2));
+            ctx.fillRect(bidEndX - bidBarW, levelY + 1, bidBarW, Math.max(1, levelPixelH - 2));
             ctx.strokeStyle = '#2E3646';
             ctx.lineWidth = 0.5;
-            ctx.strokeRect(candleX + halfW - bidBarW, levelY + 1, bidBarW, Math.max(1, levelPixelH - 2));
+            ctx.strokeRect(bidEndX - bidBarW, levelY + 1, bidBarW, Math.max(1, levelPixelH - 2));
           }
 
           // Ask Volume Bar (Buyers / Bulls)
           if (askVol > 0) {
             ctx.fillStyle = isBuyImb ? (theme.buyImbalanceColor || '#00F59B') : theme.clusterBuyerColor;
-            ctx.fillRect(candleX + halfW, levelY + 1, askBarW, Math.max(1, levelPixelH - 2));
+            ctx.fillRect(askStartX, levelY + 1, askBarW, Math.max(1, levelPixelH - 2));
           }
 
-          // Center Divider
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-          ctx.beginPath();
-          ctx.moveTo(candleX + halfW, levelY);
-          ctx.lineTo(candleX + halfW, levelY + levelPixelH);
-          ctx.stroke();
+          // The candle occupies the center; Bid and Ask stay on its respective sides.
 
           // High Contrast Sharp Numbers (Guaranteed 100% legibility on any background/bar)
           if (theme.showClusterNumbers && levelPixelH >= 8) {
@@ -584,9 +594,9 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
               ctx.textAlign = 'right';
               ctx.strokeStyle = '#08090C';
               ctx.lineWidth = 2;
-              ctx.strokeText(bidText, candleX + halfW - 4, textY);
+              ctx.strokeText(bidText, bidEndX - 2, textY, sideWidth);
               ctx.fillStyle = textClr;
-              ctx.fillText(bidText, candleX + halfW - 4, textY);
+              ctx.fillText(bidText, bidEndX - 2, textY, sideWidth);
             }
 
             if (askVol > 0) {
@@ -600,9 +610,9 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
               ctx.textAlign = 'left';
               ctx.strokeStyle = '#08090C';
               ctx.lineWidth = 2;
-              ctx.strokeText(askText, candleX + halfW + 4, textY);
+              ctx.strokeText(askText, askStartX + 2, textY, sideWidth);
               ctx.fillStyle = textClr;
-              ctx.fillText(askText, candleX + halfW + 4, textY);
+              ctx.fillText(askText, askStartX + 2, textY, sideWidth);
             }
           }
         } else if (p.displayMode === 'DELTA') {
@@ -654,27 +664,34 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
           if (totalVol > 0 || isPOC) {
             const volRatio = maxClusterVol > 0 ? (totalVol / maxClusterVol) : 0;
             const barW = Math.max(2, Math.round(volRatio * (vp.candleWidth - 4)));
-            const isMonochrome = theme.volumeHistogramPalette === 'MONOCHROME';
+            const isMonochrome = theme.volumeHistogramPalette === 'MONOCHROME' || theme.volumeHistogramPalette === 'BLACK';
+            const isBlackPalette = theme.volumeHistogramPalette === 'BLACK';
+            const isDeltaPalette = theme.volumeHistogramPalette === 'DELTA';
 
             // High Volume Nodes (HVN) vs Low Volume Nodes (LVN)
             let fillColor: string;
             let accentColor: string | null = null;
 
-            if (isPOC && showClusterPOC) {
+            if (isDeltaPalette) {
+              fillColor = getDeltaCellColor(askVol - bidVol, theme)!;
+            } else if (isPOC && showClusterPOC) {
               fillColor = 'rgba(234, 179, 8, 0.45)';
               accentColor = '#EAB308';
+            } else if (isBlackPalette) {
+              fillColor = volRatio >= 0.75 ? '#626B78' : volRatio >= 0.45 ? '#505965' : volRatio >= 0.20 ? '#414852' : '#343A43';
+              if (volRatio >= 0.45) accentColor = '#818995';
             } else if (isMonochrome) {
               // --- ЧОРНО-БІЛИЙ МОНОХРОМ (Чіткі контрастні відтінки графіту та сталі) ---
               if (volRatio >= 0.75) {
-                fillColor = '#465063'; // Яскравий сталево-графітовий
-                accentColor = '#FFFFFF'; // Чистий білий чіткий вертикальний акцент
+                fillColor = '#465063';
+                accentColor = '#FFFFFF';
               } else if (volRatio >= 0.45) {
-                fillColor = '#2F3644'; // Середній графіт
+                fillColor = '#2F3644';
                 accentColor = '#94A3B8';
               } else if (volRatio >= 0.20) {
-                fillColor = '#1F242E'; // Темний графіт
+                fillColor = '#1F242E';
               } else {
-                fillColor = '#13161D'; // Глибокий тон для низьких об'ємів
+                fillColor = '#13161D';
               }
             } else {
               // --- СТАЛЕВО-СИНІЙ КОНТРАСТНИЙ ---
@@ -710,20 +727,44 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
               const fSize = theme.clusterFontSize === 'LARGE' ? 'bold 11px' : (theme.clusterFontSize === 'SMALL' ? 'bold 8.5px' : 'bold 10px');
               ctx.font = `${fSize} JetBrains Mono, monospace`;
               ctx.textAlign = 'left';
-              const textClr = (isPOC && showClusterPOC)
+              const textClr = isDeltaPalette ? '#FFFFFF' : (isPOC && showClusterPOC)
                 ? '#FDE047'
                 : (volRatio >= 0.65 ? '#FFFFFF' : (isMonochrome ? '#CBD5E1' : '#94A3B8'));
               const volText = totalVol > 0 ? totalVol.toFixed(0) : '0';
               const textY = levelY + levelPixelH / 2 + (levelPixelH >= 12 ? 3.5 : 2.5);
+              // Text belongs to the whole cell, not the variable-width histogram bar.
+              ctx.save();
+              ctx.globalAlpha = 1;
               ctx.strokeStyle = '#08090C';
               ctx.lineWidth = 2;
-              ctx.strokeText(volText, candleX + 6, textY);
+              const textWidth = Math.max(1, vp.candleWidth - 12);
+              ctx.strokeText(volText, candleX + 6, textY, textWidth);
               ctx.fillStyle = textClr;
-              ctx.fillText(volText, candleX + 6, textY);
+              ctx.fillText(volText, candleX + 6, textY, textWidth);
+              ctx.restore();
             }
           }
         }
         ctx.restore();
+        if (theme.showClusterBorders && !(isPOC && showClusterPOC)) {
+          ctx.save();
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = theme.clusterBorderColor || '#69717D';
+          const borderWidth = Math.max(0.5, Math.min(4, theme.clusterBorderWidth ?? 1, levelPixelH / 2));
+          ctx.lineWidth = borderWidth;
+          const inset = borderWidth / 2;
+          const drawBorder = (x: number, cellWidth: number) => {
+            ctx.strokeRect(x + inset, levelY + inset, Math.max(0, cellWidth - borderWidth), Math.max(0, levelPixelH - borderWidth));
+          };
+          if (isBidAsk) {
+            const sideWidth = Math.max(1, (vp.candleWidth - barW) / 2 - barGap);
+            if (bidVol > 0) drawBorder(candleX, sideWidth);
+            if (askVol > 0) drawBorder(barX + barW + barGap, sideWidth);
+          } else if (p.displayMode !== 'DELTA' || askVol !== bidVol) {
+            drawBorder(candleX, vp.candleWidth);
+          }
+          ctx.restore();
+        }
       });
     });
 
@@ -767,8 +808,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         const isSessionPOC = showHorizontalPOC && Math.abs(lvl.price - sessionPOCPrice) < (p.tickSize * 0.5);
 
         // Seller bar (Продавці: Червоний)
-        const sellerColor = (theme.horizontalSellerColor && theme.horizontalSellerColor !== '#181C26') ? theme.horizontalSellerColor : '#A62639';
-        const buyerColor = (theme.horizontalBuyerColor && theme.horizontalBuyerColor !== '#FFFFFF') ? theme.horizontalBuyerColor : '#228B68';
+        const { seller: sellerColor, buyer: buyerColor } = getProfileColors(theme);
 
         ctx.fillStyle = isSessionPOC ? theme.horizontalPOCColor : sellerColor;
         ctx.fillRect(3, y, bidW, Math.max(1, levelPixelH - 1));
@@ -776,13 +816,20 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         // Buyer bar (Покупці: Зелений)
         ctx.fillStyle = isSessionPOC ? '#D4AF37' : buyerColor;
         ctx.fillRect(3 + bidW, y, askW, Math.max(1, levelPixelH - 1));
+        if (bidW > 0 && askW > 0) {
+          ctx.fillStyle = '#08090C';
+          ctx.fillRect(3 + bidW - 0.5, y, 1, Math.max(1, levelPixelH - 1));
+        }
 
         // Numeric text on profile (High-contrast light silver)
         if (levelPixelH >= 11) {
           ctx.font = '8px JetBrains Mono, monospace';
           ctx.fillStyle = isSessionPOC ? theme.horizontalPOCColor : '#CBD5E1';
           ctx.textAlign = 'right';
-          ctx.fillText(total.toFixed(0), profileWidth - 4, y + levelPixelH / 2 + 3);
+          ctx.strokeStyle = '#08090C';
+          ctx.lineWidth = 2;
+          ctx.strokeText(total.toFixed(0), profileWidth - 4, y + levelPixelH / 2 + 3, profileWidth - 8);
+          ctx.fillText(total.toFixed(0), profileWidth - 4, y + levelPixelH / 2 + 3, profileWidth - 8);
         }
       });
 
@@ -971,8 +1018,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         const barX = candleX + 4;
 
         // Theme colors (fallback to crisp institutional crimson & emerald)
-        const sellerColor = (theme.verticalSellerColor && theme.verticalSellerColor !== '#181C26') ? theme.verticalSellerColor : '#A62639';
-        const buyerColor = (theme.verticalBuyerColor && theme.verticalBuyerColor !== '#FFFFFF') ? theme.verticalBuyerColor : '#228B68';
+        const { seller: sellerColor, buyer: buyerColor } = getProfileColors(theme);
 
         // 1. Seller volume (bottom of bar)
         ctx.fillStyle = sellerColor;
@@ -981,6 +1027,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         // 2. Buyer volume (stacked on top of seller volume)
         ctx.fillStyle = buyerColor;
         ctx.fillRect(barX, barBottomY - sellerH - buyerH, barW, buyerH);
+        if (sellerH > 0 && buyerH > 0) {
+          ctx.fillStyle = '#08090C';
+          ctx.fillRect(barX, barBottomY - sellerH - 0.5, barW, 1);
+        }
+        ctx.strokeStyle = '#64748B';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(barX, barBottomY - barH, barW, barH);
 
         // 3. Total volume number on top of bar (Crisp silver font)
         if (vp.candleWidth >= 34) {
@@ -996,38 +1049,39 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
           const badgeW = Math.floor((barW - 2) / 2);
 
           // Left badge: Sellers (Bid Volume) - Dark Red container with Pure White text
-          ctx.fillStyle = '#7F1D1D';
+          ctx.fillStyle = sellerColor;
           ctx.fillRect(barX, badgeY, badgeW, badgeHeight);
-          ctx.strokeStyle = '#991B1B';
+          ctx.strokeStyle = '#64748B';
           ctx.lineWidth = 0.5;
           ctx.strokeRect(barX, badgeY, badgeW, badgeHeight);
 
           ctx.font = 'bold 8px JetBrains Mono, monospace';
           ctx.textAlign = 'center';
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(bidVol.toFixed(0), barX + badgeW / 2, badgeY + badgeHeight / 2 + 2.5);
+          ctx.fillStyle = getHexLuminance(sellerColor) > 140 ? '#08090C' : '#FFFFFF';
+          ctx.fillText(bidVol.toFixed(0), barX + badgeW / 2, badgeY + badgeHeight / 2 + 2.5, badgeW - 4);
 
           // Right badge: Buyers (Ask Volume) - Dark Emerald container with Pure White text
           const askX = barX + badgeW + 2;
-          ctx.fillStyle = '#065F46';
+          ctx.fillStyle = buyerColor;
           ctx.fillRect(askX, badgeY, badgeW, badgeHeight);
-          ctx.strokeStyle = '#059669';
+          ctx.strokeStyle = '#64748B';
           ctx.lineWidth = 0.5;
           ctx.strokeRect(askX, badgeY, badgeW, badgeHeight);
 
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(askVol.toFixed(0), askX + badgeW / 2, badgeY + badgeHeight / 2 + 2.5);
+          ctx.fillStyle = getHexLuminance(buyerColor) > 140 ? '#08090C' : '#FFFFFF';
+          ctx.fillText(askVol.toFixed(0), askX + badgeW / 2, badgeY + badgeHeight / 2 + 2.5, badgeW - 4);
         } else if (vp.candleWidth >= 36) {
           // Compact Delta Pill
           const delta = askVol - bidVol;
           const isPos = delta >= 0;
-          ctx.fillStyle = isPos ? '#065F46' : '#7F1D1D';
+          const badgeColor = isPos ? buyerColor : sellerColor;
+          ctx.fillStyle = badgeColor;
           ctx.fillRect(barX, badgeY, barW, badgeHeight);
 
           ctx.font = 'bold 8px JetBrains Mono, monospace';
           ctx.textAlign = 'center';
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(`${delta > 0 ? '+' : ''}${delta.toFixed(0)}`, barX + barW / 2, badgeY + badgeHeight / 2 + 2.5);
+          ctx.fillStyle = getHexLuminance(badgeColor) > 140 ? '#08090C' : '#FFFFFF';
+          ctx.fillText(`${delta > 0 ? '+' : ''}${delta.toFixed(0)}`, barX + barW / 2, badgeY + badgeHeight / 2 + 2.5, barW - 4);
         }
       });
     }
@@ -1267,7 +1321,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     }
 
     // 10. Interactive Crosshair (Smooth Hardware Coordinates)
-    if (crosshair) {
+    if (crosshair && crosshair.x >= chartStartX && crosshair.x < chartEndX && crosshair.y >= 0 && crosshair.y < height - TIME_AXIS_HEIGHT) {
       ctx.strokeStyle = theme.crosshairColor || 'rgba(255, 255, 255, 0.25)';
       ctx.setLineDash([3, 3]);
       ctx.lineWidth = 1;
@@ -1275,7 +1329,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       // Vertical line
       ctx.beginPath();
       ctx.moveTo(crosshair.x, 0);
-      ctx.lineTo(crosshair.x, height);
+      ctx.lineTo(crosshair.x, height - TIME_AXIS_HEIGHT);
       ctx.stroke();
 
       // Horizontal line
@@ -1454,6 +1508,55 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       }
     });
 
+    // Keep the shared time axis visible below every indicator and overlay.
+    const axisY = height - TIME_AXIS_HEIGHT;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.fillStyle = theme.backgroundColor || '#08090C';
+    ctx.fillRect(0, axisY, width, TIME_AXIS_HEIGHT);
+    ctx.strokeStyle = '#2B3345';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, axisY + 0.5);
+    ctx.lineTo(width, axisY + 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.rect(chartStartX, axisY, Math.max(0, chartEndX - chartStartX), TIME_AXIS_HEIGHT);
+    ctx.clip();
+    ctx.font = '11px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const latestCenterX = vp.offsetX + vp.candleWidth / 2;
+    const firstIndex = Math.max(0, Math.ceil(totalCandles - 1 + (chartStartX - latestCenterX) / candlePitch));
+    const lastIndex = Math.min(totalCandles - 1, Math.floor(totalCandles - 1 + (chartEndX - latestCenterX) / candlePitch));
+    const labelStep = Math.max(1, Math.ceil(100 / candlePitch));
+    for (let index = Math.ceil(firstIndex / labelStep) * labelStep; index <= lastIndex; index += labelStep) {
+      const x = latestCenterX - (totalCandles - 1 - index) * candlePitch;
+      const date = new Date(currentCandles[index].time * 1000);
+      const previousDate = index > 0 ? new Date(currentCandles[index - 1].time * 1000) : null;
+      const startsDay = !previousDate || date.toDateString() !== previousDate.toDateString();
+      const label = p.timeframe >= 86400 || startsDay ? axisDateFormatter.format(date) : axisTimeFormatter.format(date);
+      ctx.beginPath();
+      ctx.moveTo(x, axisY);
+      ctx.lineTo(x, axisY + 5);
+      ctx.stroke();
+      ctx.fillStyle = '#8E9CAE';
+      ctx.fillText(label, x, axisY + 17);
+    }
+    if (crosshair && crosshair.x >= chartStartX && crosshair.x < chartEndX && crosshair.y >= 0 && crosshair.y < height) {
+      const index = Math.round(totalCandles - 1 + (crosshair.x - latestCenterX) / candlePitch);
+      const anchorIndex = Math.max(0, Math.min(totalCandles - 1, index));
+      const time = currentCandles[anchorIndex].time + (index - anchorIndex) * (p.timeframe || 60);
+      const label = cursorTimeFormatter.format(new Date(time * 1000));
+      const badgeWidth = Math.min(ctx.measureText(label).width + 18, chartEndX - chartStartX);
+      const badgeX = Math.max(chartStartX, Math.min(chartEndX - badgeWidth, crosshair.x - badgeWidth / 2));
+      ctx.fillStyle = '#2B3345';
+      ctx.fillRect(badgeX, axisY + 3, badgeWidth, TIME_AXIS_HEIGHT - 6);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(label, badgeX + badgeWidth / 2, axisY + TIME_AXIS_HEIGHT / 2, Math.max(1, badgeWidth - 8));
+    }
+    ctx.restore();
+
     ctx.restore();
   }, [getPanelDividers]);
 
@@ -1516,7 +1619,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     const rsiHeight = p.showRSI ? indH.rsi : 0;
     const stochHeight = p.showStochastic ? indH.stoch : 0;
     const bottomPanelsHeight = volumeHeight + cvdHeight + rsiHeight + stochHeight;
-    const chartHeight = Math.max(80, height - bottomPanelsHeight);
+    const chartHeight = Math.max(80, height - TIME_AXIS_HEIGHT - bottomPanelsHeight);
     const chartCenterY = chartHeight / 2;
 
     const candlePitch = vp.candleWidth + vp.candleSpacing;
@@ -1575,7 +1678,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       const rsiHeight = p.showRSI ? indH.rsi : 0;
       const stochHeight = p.showStochastic ? indH.stoch : 0;
       const bottomPanelsHeight = volumeHeight + cvdHeight + rsiHeight + stochHeight;
-      const chartHeight = Math.max(80, height - bottomPanelsHeight);
+      const chartHeight = Math.max(80, height - TIME_AXIS_HEIGHT - bottomPanelsHeight);
       const chartCenterY = chartHeight / 2;
       const vp = viewportRef.current;
       const currentCandles = candlesRef.current;
@@ -1644,7 +1747,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
 
         dragModeRef.current = 'PRICE_SCALE';
         if (canvasRef.current) canvasRef.current.style.cursor = 'ns-resize';
-      } else if (y >= height - bottomPanelsHeight) {
+      } else if (y >= height - TIME_AXIS_HEIGHT) {
         dragModeRef.current = 'TIME_SCALE';
         if (canvasRef.current) canvasRef.current.style.cursor = 'ew-resize';
       } else {
@@ -1675,7 +1778,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     const rsiHeight = p.showRSI ? indH.rsi : 0;
     const stochHeight = p.showStochastic ? indH.stoch : 0;
     const bottomPanelsHeight = volumeHeight + cvdHeight + rsiHeight + stochHeight;
-    const chartHeight = Math.max(80, height - bottomPanelsHeight);
+    const chartHeight = Math.max(80, height - TIME_AXIS_HEIGHT - bottomPanelsHeight);
     const chartCenterY = chartHeight / 2;
 
     const price = vp.centerPrice - (y - chartCenterY) / vp.priceScale;
@@ -1700,7 +1803,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
           canvasRef.current.style.cursor = 'ns-resize';
         } else if (x >= width - priceScaleWidth) {
           canvasRef.current.style.cursor = 'ns-resize';
-        } else if (y >= height - bottomPanelsHeight) {
+        } else if (y >= height - TIME_AXIS_HEIGHT) {
           canvasRef.current.style.cursor = 'ew-resize';
         } else {
           canvasRef.current.style.cursor = 'crosshair';
@@ -1789,7 +1892,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
 
   const p = propsRef.current;
   const indH = p.indicatorHeights || defaultIndicatorHeights;
-  const bottomOffset = 10 +
+  const bottomOffset = 10 + TIME_AXIS_HEIGHT +
     (p.showCVD ? indH.cvd : 0) +
     (p.showVerticalVolume ? indH.volume : 0) +
     (p.showRSI ? indH.rsi : 0) +
