@@ -171,6 +171,7 @@ export const App: React.FC = () => {
     // 1. Connection status
     unsubscribers.push(wsService.onConnectionChange((connected) => {
       setIsConnected(connected);
+      if (!connected) setStats(null);
       if (connected) {
         try {
           const savedTf = parseInt(localStorage.getItem('deltaorl_timeframe') || '', 10);
@@ -304,7 +305,7 @@ export const App: React.FC = () => {
               backdropFilter: 'blur(8px)',
               pointerEvents: 'none'
             }}>
-              <span>MT5: Очікування підключення котирувань... (Натисніть «MT5 ДЖЕРЕЛО»)</span>
+              <span>{stats?.demo ? "Демонстраційні дані — MT5 не підключено" : `MT5: ${stats?.mt5_status || "Connecting"} — очікування котирувань DeltaBridge`}</span>
             </div>
           )}
 
@@ -416,7 +417,7 @@ export const App: React.FC = () => {
         onSaveImbalance={handleSaveImbalance}
         detectedTerminals={detectedTerminals}
         currentSymbol={currentSymbol}
-        isMT5Connected={Boolean(stats?.mt5_connected)}
+        isMT5Connected={isConnected && Boolean(stats?.mt5_connected)}
         brokerInfo={stats?.broker}
         ticksPerSec={stats?.ticks_per_sec || 0}
         onConnectMT5={(path) => {

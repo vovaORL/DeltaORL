@@ -7,7 +7,7 @@
 #include <charconv>
 #include <iomanip>
 #include <sstream>
-#include <windows.h>
+#include "PlatformPaths.hpp"
 
 namespace delta {
 
@@ -23,10 +23,23 @@ MT5FileReader::MT5FileReader() {
 std::vector<MT5TerminalInfo> MT5FileReader::detect_terminals() {
     std::vector<MT5TerminalInfo> results;
 
+#ifdef _WIN32
     const wchar_t* appdata = _wgetenv(L"APPDATA");
     if (!appdata) return results;
-
     std::filesystem::path term_dir = std::filesystem::path(appdata) / "MetaQuotes" / "Terminal";
+#else
+    auto users = wine_prefix() / "drive_c" / "users";
+    if (!std::filesystem::is_directory(users)) return results;
+    // Wine keeps the same MT5 data layout as Windows.
+    std::filesystem::path term_dir;
+    for (const auto& user : std::filesystem::directory_iterator(users)) {
+        auto candidate = user.path() / "AppData" / "Roaming" / "MetaQuotes" / "Terminal";
+        if (std::filesystem::is_directory(candidate)) {
+            term_dir = candidate;
+            break;
+        }
+    }
+#endif
     if (!std::filesystem::exists(term_dir)) return results;
 
     try {
@@ -69,8 +82,8 @@ std::filesystem::path origin_path(const std::filesystem::path& data) {
     std::ifstream file(data / "origin.txt", std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(file)), {});
     if (bytes.size() >= 2 && static_cast<unsigned char>(bytes[0]) == 0xff && static_cast<unsigned char>(bytes[1]) == 0xfe) {
-        std::wstring text;
-        for (size_t i = 2; i + 1 < bytes.size(); i += 2) text += wchar_t(static_cast<unsigned char>(bytes[i]) | (static_cast<unsigned char>(bytes[i + 1]) << 8));
+        std::u16string text;
+        for (size_t i = 2; i + 1 < bytes.size(); i += 2) text += char16_t(static_cast<unsigned char>(bytes[i]) | (static_cast<unsigned char>(bytes[i + 1]) << 8));
         while (!text.empty() && (text.back() == L'\r' || text.back() == L'\n' || text.back() == 0)) text.pop_back();
         return std::filesystem::path(text);
     }
@@ -82,6 +95,9 @@ std::filesystem::path origin_path(const std::filesystem::path& data) {
 bool MT5FileReader::install_ea(const std::string& terminal_path, std::string& out_dest) {
     try {
         auto requested = from_utf8(terminal_path);
+#ifndef _WIN32
+        requested = native_wine_path(requested);
+#endif
         if (requested.extension() == ".exe") requested = requested.parent_path();
         std::filesystem::path data;
         if (!requested.empty() && std::filesystem::is_directory(requested / "MQL5" / "Experts")) data = requested;
@@ -89,12 +105,15 @@ bool MT5FileReader::install_ea(const std::string& terminal_path, std::string& ou
             for (const auto& term : detect_terminals()) {
                 auto candidate = from_utf8(term.root_path);
                 if (!std::filesystem::is_directory(candidate / "MQL5" / "Experts")) continue;
-                if (requested.empty() || (!origin_path(candidate).empty() && std::filesystem::equivalent(origin_path(candidate), requested))) { data = candidate; break; }
+                auto origin = origin_path(candidate);
+#ifndef _WIN32
+                origin = native_wine_path(origin);
+#endif
+                if (requested.empty() || (!origin.empty() && std::filesystem::equivalent(origin, requested))) { data = candidate; break; }
             }
         }
         if (data.empty()) return false;
-        wchar_t executable[32768]; DWORD n = GetModuleFileNameW(nullptr, executable, 32768);
-        auto root = std::filesystem::path(std::wstring(executable, n)).parent_path();
+        auto root = executable_directory();
         std::filesystem::path source;
         for (const auto& candidate : {root / ".." / "mql5" / "DeltaBridge.mq5", root / "mql5" / "DeltaBridge.mq5"})
             if (std::filesystem::is_regular_file(candidate)) { source = candidate; break; }
@@ -173,7 +192,11 @@ std::vector<Tick> MT5FileReader::parse_ticks_csv(const std::filesystem::path& pa
             std::istringstream date(columns[0] + " " + columns[1]);
             date >> std::get_time(&time, "%Y.%m.%d %H:%M:%S");
             if (date.fail()) return {};
+#ifdef _WIN32
             auto seconds = _mkgmtime(&time);
+#else
+            auto seconds = timegm(&time);
+#endif
             if (seconds < 0) return {};
             auto dot = columns[1].find('.');
             int milliseconds = 0;
