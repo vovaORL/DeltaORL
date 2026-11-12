@@ -1,6 +1,11 @@
 #include "MT5Receiver.hpp"
-#include <ws2tcpip.h>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+#endif
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -23,6 +28,7 @@ template<class T> T number(const std::string& s) {
     if (parsed.ec != std::errc{} || parsed.ptr != s.data() + s.size() || !std::isfinite(static_cast<double>(result))) throw std::invalid_argument("Invalid number");
     return result;
 }
+#ifdef _WIN32
 std::wstring wide(const std::string& s) {
     int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0);
     if (size <= 0 && !s.empty()) throw std::invalid_argument("Invalid UTF-8");
@@ -43,6 +49,7 @@ std::wstring quote(const std::wstring& s) {
     out.append(slashes * 2, L'\\');
     return out + L'"';
 }
+#endif
 }
 MT5Receiver::MT5Receiver(int port) : port_(port) {}
 MT5Receiver::~MT5Receiver() { stop(); }
@@ -50,10 +57,12 @@ bool MT5Receiver::start() {
     if (running_) return true;
     WSADATA data;
     if (WSAStartup(MAKEWORD(2, 2), &data)) return false;
-    listen_sock_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    listen_sock_ = create_socket();
     if (listen_sock_ == INVALID_SOCKET) { WSACleanup(); return false; }
-    BOOL exclusive = TRUE;
-    setsockopt(listen_sock_, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+#ifndef _WIN32
+    if (listen_sock_ >= FD_SETSIZE) { closesocket(listen_sock_); WSACleanup(); return false; }
+#endif
+    configure_listener(listen_sock_);
     sockaddr_in address{};
     address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(static_cast<u_short>(port_));
     if (bind(listen_sock_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR || listen(listen_sock_, 4) == SOCKET_ERROR) {
@@ -72,7 +81,7 @@ bool MT5Receiver::send_command(const std::string& cmd) {
     if (client_sock_ == INVALID_SOCKET) return false;
     size_t offset = 0;
     while (offset < cmd.size()) {
-        int n = send(client_sock_, cmd.data() + offset, static_cast<int>(cmd.size() - offset), 0);
+        int n = send_socket(client_sock_, cmd.data() + offset, static_cast<int>(cmd.size() - offset));
         if (n <= 0) return false;
         offset += n;
     }
@@ -80,6 +89,7 @@ bool MT5Receiver::send_command(const std::string& cmd) {
 }
 bool MT5Receiver::trigger_feeder(const std::string& mt5_path, const std::string& symbol) {
     try {
+#ifdef _WIN32
         wchar_t executable[32768];
         DWORD size = GetModuleFileNameW(nullptr, executable, 32768);
         auto root = std::filesystem::path(std::wstring(executable, size)).parent_path();
@@ -112,6 +122,27 @@ bool MT5Receiver::trigger_feeder(const std::string& mt5_path, const std::string&
         if (!CreateProcessW(python.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, root.c_str(), &startup, &process)) return false;
         CloseHandle(process.hThread); CloseHandle(process.hProcess);
         return true;
+#else
+        const char* configured = std::getenv("DELTAORL_PYTHON");
+        if (!configured || !*configured) return false;
+        auto root = std::filesystem::canonical("/proc/self/exe").parent_path();
+        auto script = root / "mt5_feeder.py";
+        if (!std::filesystem::exists(script)) script = root / ".." / "engine" / "mt5_feeder.py";
+        if (!std::filesystem::exists(script)) return false;
+        auto wine_path = [](const std::string& value) {
+            return !value.empty() && value.front() == '/' ? "Z:" + value : value;
+        };
+        std::vector<std::string> args{"wine", wine_path(configured), "-u", wine_path(std::filesystem::canonical(script).string()),
+                                      "--port", std::to_string(port_), "--symbol", symbol};
+        if (!mt5_path.empty()) { args.push_back("--path"); args.push_back(wine_path(mt5_path)); }
+        std::vector<char*> argv;
+        for (auto& arg : args) argv.push_back(arg.data());
+        argv.push_back(nullptr);
+        pid_t child;
+        if (posix_spawnp(&child, "wine", nullptr, nullptr, argv.data(), environ) != 0) return false;
+        std::thread([child] { int status; while (waitpid(child, &status, 0) < 0 && errno == EINTR) {} }).detach();
+        return true;
+#endif
     } catch (const std::exception& e) { std::cerr << "[MT5Receiver] Feeder launch: " << e.what() << '\n'; return false; }
 }
 void MT5Receiver::server_loop() {
@@ -125,17 +156,24 @@ void MT5Receiver::server_loop() {
         fd_set reads; FD_ZERO(&reads); FD_SET(listen_sock_, &reads);
         if (client != INVALID_SOCKET) FD_SET(client, &reads);
         timeval timeout{0, 100000};
-        int selected = select(0, &reads, nullptr, nullptr, &timeout);
+        int selected = select_sockets(&reads, nullptr, &timeout);
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - rate_time).count();
         if (elapsed >= 1) { auto ticks = total_ticks_.load(); ticks_per_sec_ = (ticks - previous) / elapsed; previous = ticks; rate_time = now; }
         if (selected == SOCKET_ERROR) break;
         if (FD_ISSET(listen_sock_, &reads)) {
-            SOCKET accepted = accept(listen_sock_, nullptr, nullptr);
+            SOCKET accepted = accept_socket(listen_sock_);
             if (accepted != INVALID_SOCKET) {
+#ifndef _WIN32
+                if (accepted >= FD_SETSIZE) { closesocket(accepted); continue; }
+#endif
                 if (client != INVALID_SOCKET) closesocket(accepted);
                 else {
+#ifdef _WIN32
                     DWORD timeout_ms = 500;
+#else
+                    timeval timeout_ms{0, 500000};
+#endif
                     setsockopt(accepted, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
                     BOOL yes = TRUE;
                     setsockopt(accepted, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&yes), sizeof(yes));

@@ -39,7 +39,11 @@ def read_origin(path):
 
 def resolve_terminal_path(input_path=""):
     if input_path:
-        p = os.path.normpath(input_path.strip('"\' '))
+        p = input_path.strip('"\' ')
+        # A native Linux UI may pass a Unix path to Windows Python under Wine.
+        if os.name == "nt" and p.startswith("/"):
+            p = "Z:" + p
+        p = os.path.normpath(p)
         if os.path.isfile(p) and p.lower().endswith(".exe"):
             return p
         if os.path.isdir(p):

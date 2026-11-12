@@ -32,6 +32,8 @@ export type DOMTuple = [number, number, number];
 
 export interface EngineStats {
   mt5_connected: boolean;
+  mt5_status?: 'Connecting' | 'Connected' | 'Disconnected';
+  demo?: boolean;
   symbol: string;
   tick_size: number;
   timeframe: number;

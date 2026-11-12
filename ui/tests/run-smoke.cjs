@@ -12,7 +12,7 @@ function port() {
 }
 (async () => {
   const ws = await port(), mt5 = await port();
-  const engine = spawn(path.join(root, 'build/delta_engine.exe'), ['--no-feeder', '--ws-port', String(ws), '--mt5-port', String(mt5)], { cwd: root, windowsHide: true, stdio: 'ignore' });
+  const engine = spawn(path.join(root, 'build', process.platform === 'win32' ? 'delta_engine.exe' : 'delta_engine'), ['--no-feeder', '--ws-port', String(ws), '--mt5-port', String(mt5)], { cwd: root, windowsHide: true, stdio: 'ignore' });
   engine.on('error', error => { console.error(error); process.exitCode = 1; });
   try {
     const renderer = spawn(require('electron'), [path.join(__dirname, 'smoke-electron.cjs')], {

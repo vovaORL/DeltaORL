@@ -1,6 +1,6 @@
 # DeltaORL
 
-Термінал об’ємно-кластерного аналізу для Windows x64: C++20 ядро, MetaTrader 5, React/TypeScript і Canvas 2D у вікні Electron. Візуальний інтерфейс містить footprint, профіль видимих свічок, об’єми, CVD, RSI та Stochastic.
+Термінал об’ємно-кластерного аналізу для Windows x64 та Linux x64: C++20 ядро, MetaTrader 5, React/TypeScript і Canvas 2D у вікні Electron. Візуальний інтерфейс містить footprint, профіль видимих свічок, об’єми, CVD, RSI та Stochastic.
 
 ## Запуск
 
@@ -40,7 +40,38 @@ cmake --build build/cmake --config Release
 ctest --test-dir build/cmake -C Release --output-on-failure
 ```
 
-CMake не копіює результат у `engine`: для запуску через Electron покладіть зібраний `delta_engine.exe` у цю папку. Проєкт використовує Windows Winsock і CryptoAPI; підтримка Linux/macOS не реалізована.
+CMake не копіює результат у `engine`: для запуску через Electron покладіть зібраний `delta_engine.exe` у цю папку. У Windows ядро використовує Winsock і CryptoAPI, у Linux — POSIX-сокети та OpenSSL.
+
+## Arch Linux / Sway
+
+Потрібні `base-devel`, `cmake`, `openssl`, `nodejs` і `npm`. Electron встановлюється з `ui/package-lock.json`; системний Electron не потрібний. Застосунок використовує той самий React/Canvas-інтерфейс і C++-розрахунки, що й у Windows.
+
+```bash
+./DeltaORL.sh
+```
+
+Перший запуск встановлює npm-залежності та збирає застосунок. Наступні запуски перебудовують застарілі вихідні файли автоматично. У сесії Sway Electron використовує Wayland; для примусового запуску через XWayland можна задати `WAYLAND_DISPLAY= ./DeltaORL.sh`.
+
+Збирання й перевірки окремо:
+
+```bash
+./build.sh --test
+python3 -B -m unittest discover -s engine/tests -p 'test_*.py' -v
+(cd ui && npm run test:smoke)
+```
+
+Ядро встановлюється в `engine/delta_engine`; тестова копія — у `build/delta_engine`. Окремий запуск: `./engine/delta_engine --no-feeder`.
+
+MT5 у Linux працює через Wine ([документація MetaQuotes](https://www.metatrader5.com/en/terminal/help/start_advanced/install_linux)). Для прямого Python-підключення потрібні **Windows Python x64** та пакет `MetaTrader5` у тому самому Wine-префіксі, що й термінал. Приклад для вже налаштованого префікса:
+
+```bash
+export WINEPREFIX="$HOME/.mt5"
+export DELTAORL_PYTHON='C:\Python312\python.exe' # Шлях до вашого Windows Python
+wine "$DELTAORL_PYTHON" -m pip install -r "Z:$PWD/engine/requirements.txt"
+./DeltaORL.sh
+```
+
+Без `DELTAORL_PYTHON` автоматичний Python-міст у Linux не запускається: доступні демонстраційний потік та підключення через наявний MQL5-радник `DeltaBridge`. У налаштуваннях можна вказати Linux-шлях до термінала чи його каталогу даних у Wine. Виявлення терміналів і встановлення радника використовують `WINEPREFIX` (типово `~/.wine`). Без підключеного брокера реальні дані перевірити неможливо.
 
 ## Підключення MT5
 
