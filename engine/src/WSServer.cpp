@@ -1,8 +1,11 @@
 #include "WSServer.hpp"
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "SocketPlatform.hpp"
+#ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include <openssl/evp.h>
+#endif
 #include <algorithm>
 #include <iostream>
 
@@ -12,6 +15,7 @@ constexpr size_t max_command = 65536;
 
 std::string WSServer::calculate_ws_accept(const std::string& key) {
     const std::string combined = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+#ifdef _WIN32
     HCRYPTPROV provider = 0;
     HCRYPTHASH hash = 0;
     std::string result;
@@ -30,6 +34,14 @@ std::string WSServer::calculate_ws_accept(const std::string& key) {
         CryptReleaseContext(provider, 0);
     }
     return result;
+#else
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int length = 0;
+    if (!EVP_Digest(combined.data(), combined.size(), digest, &length, EVP_sha1(), nullptr)) return {};
+    unsigned char encoded[4 * ((EVP_MAX_MD_SIZE + 2) / 3) + 1];
+    int size = EVP_EncodeBlock(encoded, digest, static_cast<int>(length));
+    return {reinterpret_cast<const char*>(encoded), static_cast<size_t>(size)};
+#endif
 }
 std::vector<uint8_t> WSServer::encode_frame(const std::string& text, uint8_t opcode) {
     std::vector<uint8_t> frame;
@@ -48,10 +60,12 @@ bool WSServer::start() {
     if (running_) return true;
     WSADATA data;
     if (WSAStartup(MAKEWORD(2, 2), &data)) return false;
-    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    SOCKET sock = create_socket();
     if (sock == INVALID_SOCKET) { WSACleanup(); return false; }
-    BOOL exclusive = TRUE;
-    setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+#ifndef _WIN32
+    if (sock >= FD_SETSIZE) { closesocket(sock); WSACleanup(); return false; }
+#endif
+    configure_listener(sock);
     sockaddr_in address{};
     address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(static_cast<u_short>(port_));
     u_long mode = 1;
@@ -96,10 +110,13 @@ void WSServer::server_loop() {
             }
         }
         timeval timeout{0, 10000};
-        if (select(0, &reads, &writes, nullptr, &timeout) == SOCKET_ERROR) break;
+        if (select_sockets(&reads, &writes, &timeout) == SOCKET_ERROR) break;
         if (FD_ISSET(listener, &reads)) {
-            SOCKET sock = accept(listener, nullptr, nullptr);
+            SOCKET sock = accept_socket(listener);
             if (sock != INVALID_SOCKET) {
+#ifndef _WIN32
+                if (sock >= FD_SETSIZE) { closesocket(sock); continue; }
+#endif
                 u_long mode = 1; ioctlsocket(sock, FIONBIO, &mode);
                 BOOL yes = TRUE; setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&yes), sizeof(yes));
                 std::lock_guard lock(clients_mutex_);
@@ -177,7 +194,7 @@ void WSServer::server_loop() {
                     while (!c->outgoing.empty() && budget > 0) {
                         const auto& frame = *c->outgoing.front();
                         size_t amount = std::min({frame.size() - c->send_offset, budget, size_t(32768)});
-                        int sent = send(sock, reinterpret_cast<const char*>(frame.data() + c->send_offset), static_cast<int>(amount), 0);
+                        int sent = send_socket(sock, reinterpret_cast<const char*>(frame.data() + c->send_offset), static_cast<int>(amount));
                         if (sent <= 0) { if (sent == 0 || WSAGetLastError() != WSAEWOULDBLOCK) c->closing = true; break; }
                         c->send_offset += sent; c->queued_bytes -= sent; budget -= sent;
                         if (c->send_offset == frame.size()) { c->outgoing.pop_front(); c->send_offset = 0; }

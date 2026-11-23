@@ -48,3 +48,6 @@ __pycache__/
 .venv/
 venv/
 
+
+# Native Linux engine
+engine/delta_engine

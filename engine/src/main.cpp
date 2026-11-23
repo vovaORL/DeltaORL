@@ -42,10 +42,11 @@ std::ostringstream json_stream() { std::ostringstream s; s.imbue(std::locale::cl
 }
 int main(int argc, char** argv) {
     std::signal(SIGINT, stop_signal); std::signal(SIGTERM, stop_signal);
-    bool auto_feeder = true, demo = true;
+    bool auto_feeder = true, demo = true, bridge = false;
     int mt5_port = 9190, ws_port = 9191;
     for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--no-feeder") auto_feeder = false;
+        if (std::string(argv[i]) == "--bridge") { bridge = true; auto_feeder = false; demo = false; }
+        else if (std::string(argv[i]) == "--no-feeder") auto_feeder = false;
         else if (std::string(argv[i]) == "--no-demo") demo = false;
         else if ((std::string(argv[i]) == "--mt5-port" || std::string(argv[i]) == "--ws-port") && i + 1 < argc) {
             bool mt5 = std::string(argv[i]) == "--mt5-port";
@@ -54,7 +55,7 @@ int main(int argc, char** argv) {
             if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || port < 1 || port > 65535) return 2;
             (mt5 ? mt5_port : ws_port) = port;
         }
-        else { std::cerr << "Usage: delta_engine [--no-feeder] [--no-demo] [--mt5-port N] [--ws-port N]\n"; return 2; }
+        else { std::cerr << "Usage: delta_engine [--bridge] [--no-feeder] [--no-demo] [--mt5-port N] [--ws-port N]\n"; return 2; }
     }
     std::cout << "DeltaORL C++20 Engine\n";
     ClusterAggregator aggregator;
@@ -63,7 +64,7 @@ int main(int argc, char** argv) {
     MarketSimulator simulator;
     WSServer server(ws_port);
     std::mutex state;
-    bool broker_ready = false, loading = false;
+    bool broker_ready = false, loading = false, received_tick = false;
     uint64_t demo_generation = 1;
     std::string requested_symbol = "EURUSD";
     std::vector<DOMEntry> real_dom;
@@ -100,6 +101,7 @@ int main(int argc, char** argv) {
     receiver.set_connection_callback([&](bool connected) {
         if (connected) return;
         std::lock_guard lock(state);
+        std::cout << "[MT5] Disconnected" << std::endl;
         broker_ready = false;
         demo_symbol(requested_symbol);
         for (auto id : pending_connections) load_result(id, false, requested_symbol, "З'єднання з MT5 втрачено.");
@@ -107,18 +109,22 @@ int main(int argc, char** argv) {
     });
     receiver.set_handshake_callback([&](const std::string& symbol, double step, int) {
         std::lock_guard lock(state);
+        received_tick = false;
+        std::cout << "[MT5] HELLO " << symbol << std::endl;
         simulator.set_enabled(false); broker_ready = true; loading = true; real_dom.clear();
         requested_symbol = symbol; aggregator.set_symbol(symbol, step); snapshot();
     });
     receiver.set_tick_callback([&](const Tick& tick) {
         std::lock_guard lock(state);
         if (!broker_ready || tick.symbol != aggregator.get_symbol()) return;
+        received_tick = true;
         aggregator.process_tick(tick);
         if (!loading) tick_message(tick);
     });
     receiver.set_ready_callback([&] {
         std::lock_guard lock(state);
         if (!broker_ready) return;
+        std::cout << "[MT5] READY; received ticks: " << receiver.get_total_ticks() << std::endl;
         loading = false; snapshot();
         for (auto id : pending_connections) load_result(id, true, aggregator.get_symbol(), "MT5 підключено, історію завантажено.");
         pending_connections.clear();
@@ -160,8 +166,12 @@ int main(int argc, char** argv) {
                 if (action != "set_symbol") pending_connections.push_back(id);
                 bool ok;
                 if (receiver.is_connected()) {
-                    std::string cmd = action != "set_symbol" && !path.empty() ? "PATH;" + path + "\n" : "";
+                    std::string cmd = !bridge && action != "set_symbol" && !path.empty() ? "PATH;" + path + "\n" : "";
                     ok = receiver.send_command(cmd + "SWITCH;" + symbol + "\n");
+                } else if (bridge) {
+                    load_result(id, false, symbol, "Очікування DeltaBridge на 127.0.0.1:9190. Прикріпіть радник до графіка MT5; Python feeder вимкнено.");
+                    pending_connections.clear();
+                    return;
                 } else ok = receiver.trigger_feeder(path, symbol);
                 if (!ok) {
                     pending_connections.clear();
@@ -198,10 +208,12 @@ int main(int argc, char** argv) {
         if (!loading) server.broadcast(aggregator.serialize_live_update_json());
         if (++iteration % 15 == 0) {
             auto ss = json_stream();
-            ss << "{\"type\":\"stats\",\"mt5_connected\":" << (broker_ready ? "true" : "false")
+            ss << "{\"type\":\"stats\",\"mt5_connected\":" << (broker_ready && !loading && received_tick ? "true" : "false")
+               << ",\"mt5_status\":" << json_quote(broker_ready && !loading && received_tick ? "Connected" : (receiver.is_connected() ? "Connecting" : "Disconnected"))
+               << ",\"demo\":" << (demo && !broker_ready ? "true" : "false")
                << ",\"symbol\":" << json_quote(aggregator.get_symbol()) << ",\"tick_size\":" << aggregator.get_tick_size()
                << ",\"timeframe\":" << aggregator.get_timeframe() << ",\"ticks_per_sec\":" << (broker_ready ? receiver.get_ticks_per_sec() : 0)
-               << ",\"cvd\":" << aggregator.get_cumulative_delta() << ",\"broker\":" << json_quote(broker_ready ? receiver.get_broker_info() : "Simulator")
+               << ",\"cvd\":" << aggregator.get_cumulative_delta() << ",\"broker\":" << json_quote(broker_ready ? receiver.get_broker_info() : (demo ? "Simulator" : "Disconnected"))
                << ",\"ui_clients\":" << server.get_client_count() << '}';
             server.broadcast(ss.str());
             auto dom = broker_ready ? real_dom : (demo ? simulator.generate_simulated_dom(10) : std::vector<DOMEntry>{});

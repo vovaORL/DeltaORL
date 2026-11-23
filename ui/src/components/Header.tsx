@@ -328,7 +328,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className={`header-toggle-btn ${showVerticalVolume ? 'active' : ''}`}
           onClick={onToggleVerticalVolume}
-          title="Вертикальний об'єм свічок з поділом на покупців і продавців"
+          title="Тиковий обсяг свічок з евристичним поділом Buy/Sell"
         >
           <AlignVerticalJustifyStart size={10} />
           <span>ОБ'ЄМ</span>
@@ -391,7 +391,7 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <span className={`status-dot ${stats?.mt5_connected ? 'online' : (isConnected ? 'sim' : 'offline')}`}></span>
           <span style={{ color: stats?.mt5_connected ? '#FFFFFF' : '#8E9CAE' }}>
-            {stats?.mt5_connected ? 'MT5: LIVE' : (isConnected ? 'SIMULATOR' : 'OFFLINE')}
+            {stats?.mt5_connected ? 'MT5: LIVE' : (isConnected ? (stats?.demo ? 'SIMULATOR' : `MT5: ${stats?.mt5_status || 'Connecting'}`) : 'MT5: Disconnected')}
           </span>
         </div>
 

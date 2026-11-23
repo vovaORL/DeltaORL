@@ -6,12 +6,7 @@
 #include <functional>
 #include <mutex>
 
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#define SOCKET int
-#define INVALID_SOCKET -1
-#endif
+#include "SocketPlatform.hpp"
 
 namespace delta {
 

@@ -1,6 +1,6 @@
 # DeltaORL
 
-Термінал об’ємно-кластерного аналізу для Windows x64: C++20 ядро, MetaTrader 5, React/TypeScript і Canvas 2D у вікні Electron. Візуальний інтерфейс містить footprint, профіль видимих свічок, об’єми, CVD, RSI та Stochastic.
+Термінал об’ємно-кластерного аналізу для Windows x64 та Linux x64: C++20 ядро, MetaTrader 5, React/TypeScript і Canvas 2D у вікні Electron. Візуальний інтерфейс містить footprint, профіль видимих свічок, об’єми, CVD, RSI та Stochastic.
 
 ## Запуск
 
@@ -40,7 +40,38 @@ cmake --build build/cmake --config Release
 ctest --test-dir build/cmake -C Release --output-on-failure
 ```
 
-CMake не копіює результат у `engine`: для запуску через Electron покладіть зібраний `delta_engine.exe` у цю папку. Проєкт використовує Windows Winsock і CryptoAPI; підтримка Linux/macOS не реалізована.
+CMake не копіює результат у `engine`: для запуску через Electron покладіть зібраний `delta_engine.exe` у цю папку. У Windows ядро використовує Winsock і CryptoAPI, у Linux — POSIX-сокети та OpenSSL.
+
+## Arch Linux / Sway
+
+Потрібні `base-devel`, `cmake`, `openssl`, `nodejs` і `npm`. Electron встановлюється з `ui/package-lock.json`; системний Electron не потрібний. Застосунок використовує той самий React/Canvas-інтерфейс і C++-розрахунки, що й у Windows.
+
+```bash
+./DeltaORL.sh
+```
+
+Перший запуск встановлює npm-залежності та збирає застосунок. Наступні запуски перебудовують застарілі вихідні файли автоматично. У сесії Sway Electron використовує Wayland; для примусового запуску через XWayland можна задати `WAYLAND_DISPLAY= ./DeltaORL.sh`.
+
+Збирання й перевірки окремо:
+
+```bash
+./build.sh --test
+python3 -B -m unittest discover -s engine/tests -p 'test_*.py' -v
+(cd ui && npm run test:smoke)
+```
+
+Ядро встановлюється в `engine/delta_engine`; тестова копія — у `build/delta_engine`. Окремий запуск: `./engine/delta_engine --no-feeder`.
+
+MT5 у Linux працює через Wine ([документація MetaQuotes](https://www.metatrader5.com/en/terminal/help/start_advanced/install_linux)). Для прямого Python-підключення потрібні **Windows Python x64** та пакет `MetaTrader5` у тому самому Wine-префіксі, що й термінал. Приклад для вже налаштованого префікса:
+
+```bash
+export WINEPREFIX="$HOME/.mt5"
+export DELTAORL_PYTHON='C:\Python312\python.exe' # Шлях до вашого Windows Python
+wine "$DELTAORL_PYTHON" -m pip install -r "Z:$PWD/engine/requirements.txt"
+./DeltaORL.sh
+```
+
+Без `DELTAORL_PYTHON` автоматичний Python-міст у Linux не запускається: доступні демонстраційний потік та підключення через наявний MQL5-радник `DeltaBridge`. У налаштуваннях можна вказати Linux-шлях до термінала чи його каталогу даних у Wine. Виявлення терміналів і встановлення радника використовують `WINEPREFIX` (типово `~/.wine`). Без підключеного брокера реальні дані перевірити неможливо.
 
 ## Підключення MT5
 
@@ -57,6 +88,8 @@ python -m pip install -r engine/requirements.txt
 Альтернатива: запустіть ядро з `--no-feeder` і підключіть `mql5/DeltaBridge.ex5` до графіка MT5. Кнопка встановлення радника копіює `.mq5` і актуальний `.ex5` у `MQL5/Experts/DeltaORL` вибраного термінала. Після зміни `.mq5` перекомпілюйте його в MetaEditor. Python та радник є альтернативними постачальниками: ядро приймає одне TCP-з’єднання джерела одночасно.
 
 Python завантажує до 200 000 тіків за 5 днів, розширюючи пошук до 10 днів за малої кількості даних. Поточний потік зберігає всі отримані записи з однаковою мілісекундною міткою. Обидва мости передають `READY` навіть за відсутності історії. Реальна глибина ринку передається тільки тоді, коли її підтримує брокер; для радника потрібен `InpSendBook=true`. За відсутності брокерського DOM ядро передає порожній стакан, а не штучну ліквідність.
+
+Для потоків з прапорцями MT5 Tick Volume та обсяги кластерів рахують по одному оновленню з `TICK_FLAG_BID`; оновлення лише Ask зберігаються і враховуються окремо в кількості оновлень котирувань. Оцінки Buy/Sell і Delta розподіляють саме цей тиковий обсяг за наявною евристикою, вони не є підтвердженим обсягом угод. Відповідність `CopyRates.tick_volume` підтверджена для перевіреного Bid-графіка поточного брокера, але не гарантується для кожного брокера чи типу інструмента. Старий восьмипольний протокол не містить прапорців: його обсяг зберігає попередню семантику і позначається в UI як обсяг без прапорців. Для роботи нової семантики потрібно оновити і engine, і DeltaBridge; старий engine не розбирає дев'ятипольні повідомлення.
 
 Для Forex/CFD без напряму угоди й реального об’єму сторона визначається за рухом ціни, а відсутній об’єм замінюється одиницею. Така дельта є оцінкою за котируваннями, а не гарантованою біржовою дельтою.
 

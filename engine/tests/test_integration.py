@@ -8,6 +8,9 @@ import socket
 import struct
 import subprocess
 import time
+import sys
+import tempfile
+from unittest.mock import patch
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -90,7 +93,7 @@ class WS:
 class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.mt5_port, self.ws_port = free_port(), free_port()
-        self.args = [str(ROOT / "build" / "delta_engine.exe"), "--no-feeder", "--no-demo", "--mt5-port", str(self.mt5_port), "--ws-port", str(self.ws_port)]
+        self.args = [str(ROOT / "build" / ("delta_engine.exe" if os.name == "nt" else "delta_engine")), "--no-feeder", "--no-demo", "--mt5-port", str(self.mt5_port), "--ws-port", str(self.ws_port)]
         self.process = subprocess.Popen(self.args, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.clients = []
         for _ in range(100):
@@ -140,6 +143,48 @@ class IntegrationTests(unittest.TestCase):
         sock.close()
         self.ws.until(lambda d: d["type"] == "stats" and not d["mt5_connected"])
         self.assertIsNone(self.process.poll())
+
+    def test_bridge_status_same_millisecond_and_eurusd_timeframes(self):
+        self.process.terminate(); self.process.wait(timeout=5); self.process.stderr.close()
+        self.process = subprocess.Popen(self.args + ["--bridge"], cwd=ROOT,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        for _ in range(100):
+            try:
+                self.ws = WS(self.ws_port); self.clients.append(self.ws)
+                break
+            except OSError:
+                time.sleep(.03)
+        stats = self.ws.until(lambda d: d["type"] == "stats")
+        self.assertEqual(stats["mt5_status"], "Disconnected")
+        self.assertFalse(stats["demo"])
+        sock = self.source()
+        sock.sendall(b"INFO;Fixture DeltaBridge\nHELLO;EURUSD;0.0001;5\n")
+        stats = self.ws.until(lambda d: d["type"] == "stats" and d["mt5_status"] == "Connecting")
+        self.assertFalse(stats["mt5_connected"])
+        sock.sendall(b"TICK;EURUSD;900001;1.085;1;1;1.0849;1.0851\n"
+                     b"TICK;EURUSD;900001;1.085;1;1;1.0849;1.0851\n"
+                     b"TICK;EURUSD;960002;1.086;2;-1;1.0859;1.0861\nREADY\n")
+        stats = self.ws.until(lambda d: d["type"] == "stats" and d["mt5_connected"])
+        self.assertEqual(stats["mt5_status"], "Connected")
+        for timeframe, count in [(60, 2), (900, 1), (60, 2)]:
+            self.ws.send({"action": "set_timeframe", "timeframe": timeframe})
+            data = self.ws.until(lambda d: d["type"] == "snapshot" and d["timeframe"] == timeframe)
+            self.assertEqual(len(data["candles"]), count)
+            self.assertEqual(sum(c["v"] for c in data["candles"]), 4)
+        sock.sendall(b"TICK;EURUSD;960003;1.087;3;1;1.0869;1.0871\n")
+        tick = self.ws.until(lambda d: d["type"] == "tick")
+        self.assertEqual(tick["t"], 960003)
+        self.assertEqual(tick["p"], 1.087)
+        sock.close()
+        stats = self.ws.until(lambda d: d["type"] == "stats" and d["mt5_status"] == "Disconnected")
+        self.assertFalse(stats["demo"])
+        self.ws.send({"action": "get_snapshot"})
+        data = self.ws.until(lambda d: d["type"] == "snapshot")
+        self.assertEqual(data["candles"], [])
+        self.ws.send({"action": "connect_mt5", "symbol": "EURUSD"})
+        result = self.ws.until(lambda d: d["type"] == "mt5_load_result")
+        self.assertEqual(result["count"], 0)
+        self.assertIn("DeltaBridge", result["msg"])
 
     def test_fragmented_commands_ping_close_and_invalid_inputs(self):
         self.ws.frame('{"action":', final=False)
@@ -229,6 +274,57 @@ class IntegrationTests(unittest.TestCase):
         self.ws.until(lambda d: d["type"] == "snapshot" and d["symbol"] == "REAL" and not d["candles"])
         demo = self.ws.until(lambda d: d["type"] == "candle_update" and len(d["candles"]) > 100)
         self.assertLess(sum(c["v"] for c in demo["candles"]), 500000)
+
+
+@unittest.skipUnless(sys.platform == "linux", "Wine bridge paths are Linux-specific")
+class LinuxPlatformTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="deltaorl-wine-")
+        self.addCleanup(self.directory.cleanup)
+        self.prefix = Path(self.directory.name)
+        self.record = self.prefix / "arguments.json"
+        wine = self.prefix / "wine"
+        wine.write_text(f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\nsockets = [os.readlink(p) for p in Path('/proc/self/fd').iterdir() if p.is_symlink() and os.readlink(p).startswith('socket:')]\nPath({str(self.record)!r}).write_text(json.dumps({{'arguments': sys.argv[1:], 'sockets': sockets}}))\n")
+        wine.chmod(0o755)
+        self.installation = self.prefix / "drive_c" / "Program Files" / "Термінал"
+        self.installation.mkdir(parents=True)
+        self.data = self.prefix / "drive_c/users/test/AppData/Roaming/MetaQuotes/Terminal/TEST"
+        (self.data / "MQL5/Experts").mkdir(parents=True)
+        (self.data / "bases/Broker").mkdir(parents=True)
+        (self.data / "origin.txt").write_text("C:\\Program Files\\Термінал", encoding="utf-16")
+        (self.prefix / "dosdevices").mkdir()
+        (self.prefix / "dosdevices/c:").symlink_to(self.prefix / "drive_c", target_is_directory=True)
+        with patch.dict(os.environ, {"WINEPREFIX": str(self.prefix), "DELTAORL_PYTHON": "C:\\Python\\python.exe",
+                                    "PATH": str(self.prefix) + os.pathsep + os.environ["PATH"]}):
+            IntegrationTests.setUp(self)
+
+    tearDown = IntegrationTests.tearDown
+
+    def test_wine_feeder_arguments_preserve_spaces_and_symbols(self):
+        symbol = 'EURUSD "test" $(echo untouched)'
+        terminal = str(self.installation / "terminal64.exe")
+        self.ws.send({"action": "connect_mt5", "path": terminal, "symbol": symbol})
+        deadline = time.monotonic() + 5
+        while not self.record.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        record = json.loads(self.record.read_text())
+        self.assertEqual(record["sockets"], [], "Wine must not inherit engine sockets")
+        arguments = record["arguments"]
+        self.assertEqual(arguments[0], "C:\\Python\\python.exe")
+        self.assertEqual(arguments[arguments.index("--symbol") + 1], symbol)
+        self.assertEqual(arguments[arguments.index("--path") + 1], "Z:" + terminal)
+        self.assertTrue(arguments[2].endswith("engine/mt5_feeder.py"))
+        self.assertIsNone(self.process.poll())
+
+    def test_detect_and_install_ea_in_wine_with_utf16_origin(self):
+        self.ws.send({"action": "get_mt5_terminals"})
+        terminals = self.ws.until(lambda d: d["type"] == "mt5_terminals")["terminals"]
+        self.assertEqual(terminals[0]["path"], str(self.data))
+        self.assertEqual(terminals[0]["servers"], ["Broker"])
+        self.ws.send({"action": "install_ea", "path": str(self.installation / "terminal64.exe")})
+        result = self.ws.until(lambda d: d["type"] == "install_ea_result")
+        self.assertTrue(result["success"])
+        self.assertEqual(Path(result["destination"]).read_bytes(), (ROOT / "mql5/DeltaBridge.mq5").read_bytes())
 
 
 if __name__ == "__main__":

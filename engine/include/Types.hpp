@@ -21,6 +21,8 @@ struct Tick {
     TradeSide side = TradeSide::Unknown;
     double bid = 0.0;
     double ask = 0.0;
+    uint32_t flags = 0;
+    bool has_flags = false;
 };
 
 struct ClusterLevel {
@@ -43,6 +45,8 @@ struct Candle {
     double low = 0.0;
     double close = 0.0;
     double total_vol = 0.0;
+    uint64_t quote_updates = 0;
+    uint64_t unclassified_updates = 0;
     double bid_vol = 0.0;   // Seller volume
     double ask_vol = 0.0;   // Buyer volume
     double delta = 0.0;

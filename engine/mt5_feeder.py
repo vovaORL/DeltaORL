@@ -39,7 +39,11 @@ def read_origin(path):
 
 def resolve_terminal_path(input_path=""):
     if input_path:
-        p = os.path.normpath(input_path.strip('"\' '))
+        p = input_path.strip('"\' ')
+        # A native Linux UI may pass a Unix path to Windows Python under Wine.
+        if os.name == "nt" and p.startswith("/"):
+            p = "Z:" + p
+        p = os.path.normpath(p)
         if os.path.isfile(p) and p.lower().endswith(".exe"):
             return p
         if os.path.isdir(p):
@@ -229,7 +233,7 @@ class MT5DirectFeeder:
             else:
                 side = 1 if price > self.last_price else -1
             self.last_price, self.last_side = price, side
-            lines.append(f"TICK;{self.current_symbol};{stamp};{price:.12g};{volume:.12g};{side};{bid:.12g};{ask:.12g}\n")
+            lines.append(f"TICK;{self.current_symbol};{stamp};{price:.12g};{volume:.12g};{side};{bid:.12g};{ask:.12g};{flags}\n")
             if len(lines) >= 2000:
                 self.send_line("".join(lines))
                 lines.clear()

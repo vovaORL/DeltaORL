@@ -171,6 +171,7 @@ export const App: React.FC = () => {
     // 1. Connection status
     unsubscribers.push(wsService.onConnectionChange((connected) => {
       setIsConnected(connected);
+      if (!connected) setStats(null);
       if (connected) {
         try {
           const savedTf = parseInt(localStorage.getItem('deltaorl_timeframe') || '', 10);
@@ -304,7 +305,7 @@ export const App: React.FC = () => {
               backdropFilter: 'blur(8px)',
               pointerEvents: 'none'
             }}>
-              <span>MT5: Очікування підключення котирувань... (Натисніть «MT5 ДЖЕРЕЛО»)</span>
+              <span>{stats?.demo ? "Демонстраційні дані — MT5 не підключено" : `MT5: ${stats?.mt5_status || "Connecting"} — очікування котирувань DeltaBridge`}</span>
             </div>
           )}
 
@@ -331,17 +332,21 @@ export const App: React.FC = () => {
                 </span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ОБ'ЄМ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>{latestCandle.unclassified_updates === undefined || latestCandle.unclassified_updates > 0 ? 'ОБ’ЄМ БЕЗ ПРАПОРЦІВ:' : 'TICK VOLUME:'}</span>
                 <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{latestCandle.v.toFixed(1)}</span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ПРОДАВЦІ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>ОНОВЛЕННЯ КОТИРУВАНЬ:</span>
+                <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{latestCandle.quote_updates ?? '—'}</span>
+              </div>
+              <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
+                <span style={{ color: '#64748B', marginRight: 4 }}>SELL (ОЦІНКА):</span>
                 <span style={{ color: '#E2E8F0', fontWeight: 600 }}>
                   {latestCandle.bv !== undefined ? latestCandle.bv.toFixed(1) : ((latestCandle.v - latestCandle.d) * 0.5).toFixed(1)}
                 </span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ПОКУПЦІ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>BUY (ОЦІНКА):</span>
                 <span style={{ color: '#E2E8F0', fontWeight: 600 }}>
                   {latestCandle.av !== undefined ? latestCandle.av.toFixed(1) : ((latestCandle.v + latestCandle.d) * 0.5).toFixed(1)}
                 </span>
@@ -416,7 +421,7 @@ export const App: React.FC = () => {
         onSaveImbalance={handleSaveImbalance}
         detectedTerminals={detectedTerminals}
         currentSymbol={currentSymbol}
-        isMT5Connected={Boolean(stats?.mt5_connected)}
+        isMT5Connected={isConnected && Boolean(stats?.mt5_connected)}
         brokerInfo={stats?.broker}
         ticksPerSec={stats?.ticks_per_sec || 0}
         onConnectMT5={(path) => {

@@ -7,6 +7,13 @@
 
 namespace delta {
 
+namespace {
+constexpr uint32_t mt5_tick_flag_bid = 2u;
+double cluster_volume(const Tick& tick) {
+    return tick.has_flags ? ((tick.flags & mt5_tick_flag_bid) ? 1.0 : 0.0) : tick.volume;
+}
+}
+
 ClusterAggregator::ClusterAggregator(std::string symbol, double tick_size, int timeframe_sec)
     : symbol_(symbol), tick_size_(tick_size), timeframe_sec_(timeframe_sec) {
     if (!std::isfinite(tick_size_) || tick_size_ <= 0) tick_size_ = 0.0001;
@@ -82,7 +89,7 @@ void ClusterAggregator::process_tick(const Tick& tick) {
             [](int64_t time, const Tick& value) { return time < value.time_msc; });
         tick_history_.insert(it, tick);
         if (tick_history_.size() > 300000) {
-            history_base_delta_ += static_cast<int>(tick_history_.front().side) * tick_history_.front().volume;
+            history_base_delta_ += static_cast<int>(tick_history_.front().side) * cluster_volume(tick_history_.front());
             tick_history_.pop_front();
         }
         rebuild_candles_from_history();
@@ -93,7 +100,7 @@ void ClusterAggregator::process_tick(const Tick& tick) {
     // Buffer raw ticks for instant timeframe recalculation (up to 300,000 ticks)
     tick_history_.push_back(tick);
     if (tick_history_.size() > 300000) {
-        history_base_delta_ += static_cast<int>(tick_history_.front().side) * tick_history_.front().volume;
+        history_base_delta_ += static_cast<int>(tick_history_.front().side) * cluster_volume(tick_history_.front());
         tick_history_.pop_front();
     }
 
@@ -132,7 +139,11 @@ void ClusterAggregator::aggregate_tick_internal(const Tick& tick) {
     if (tick.price > current.high) current.high = tick.price;
     if (tick.price < current.low) current.low = tick.price;
     current.close = tick.price;
-    current.total_vol += tick.volume;
+    ++current.quote_updates;
+    if (!tick.has_flags) ++current.unclassified_updates;
+    const double volume = cluster_volume(tick);
+    if (volume == 0.0) return;
+    current.total_vol += volume;
 
     // Price level indexing
     int64_t price_idx = to_tick_index(tick.price);
@@ -142,17 +153,17 @@ void ClusterAggregator::aggregate_tick_internal(const Tick& tick) {
     // Delta & Volume distribution (Sellers vs Buyers)
     double tick_delta = 0.0;
     if (tick.side == TradeSide::Buy) {
-        level.ask_vol += tick.volume;
+        level.ask_vol += volume;
         level.ask_trades++;
-        current.ask_vol += tick.volume;
-        tick_delta = tick.volume;
+        current.ask_vol += volume;
+        tick_delta = volume;
     } else if (tick.side == TradeSide::Sell) {
-        level.bid_vol += tick.volume;
+        level.bid_vol += volume;
         level.bid_trades++;
-        current.bid_vol += tick.volume;
-        tick_delta = -tick.volume;
+        current.bid_vol += volume;
+        tick_delta = -volume;
     } else {
-        double half = tick.volume * 0.5;
+        double half = volume * 0.5;
         level.ask_vol += half;
         level.bid_vol += half;
         level.ask_trades++;
@@ -270,6 +281,8 @@ static void serialize_candle_json(std::ostringstream& ss, const Candle& c) {
        << ",\"l\":" << c.low
        << ",\"c\":" << c.close
        << ",\"v\":" << c.total_vol
+       << ",\"quote_updates\":" << c.quote_updates
+       << ",\"unclassified_updates\":" << c.unclassified_updates
        << ",\"bv\":" << c.bid_vol
        << ",\"av\":" << c.ask_vol
        << ",\"d\":" << c.delta

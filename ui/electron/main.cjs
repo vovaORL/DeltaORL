@@ -7,7 +7,7 @@ if (typeof electron === 'string' || !electron || !electron.app) {
   const path = require('path');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const electronExe = typeof electron === 'string' ? electron : path.join(__dirname, '../node_modules/electron/dist/electron.exe');
+  const electronExe = typeof electron === 'string' ? electron : path.join(__dirname, process.platform === 'win32' ? '../node_modules/electron/dist/electron.exe' : '../node_modules/electron/dist/electron');
   const appRoot = path.join(__dirname, '..');
   const child = spawn(electronExe, [appRoot, '--disable-gpu-shader-disk-cache', '--disable-features=DawnGraphite,PersistentCache,SkiaGraphite', '--log-level=3'], {
     detached: true,
@@ -28,6 +28,8 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-features', 'DawnGraphite,PersistentCache,SkiaGraphite');
 app.commandLine.appendSwitch('log-level', '3');
+
+const engineName = process.platform === 'win32' ? 'delta_engine.exe' : 'delta_engine';
 
 let mainWindow = null;
 let engineProcess = null;
@@ -57,23 +59,23 @@ function newerSources(directory, artifact) {
 
 async function ensureBuild() {
   const root = path.resolve(__dirname, '../..');
-  const engine = path.join(root, 'engine/delta_engine.exe');
+  const engine = path.join(root, 'engine', engineName);
   const html = path.join(root, 'ui/dist/index.html');
   let buildEngine = newerSources(path.join(root, 'engine/src'), engine) || newerSources(path.join(root, 'engine/include'), engine);
   const buildUI = newerSources(path.join(root, 'ui/src'), html) || !fs.existsSync(html);
   if (!buildEngine && !buildUI) return;
   if (buildEngine && await portReady()) throw new Error('Close the running DeltaORL engine before rebuilding the updated sources.');
-  const staged = path.join(root, 'build/delta_engine.exe');
+  const staged = path.join(root, 'build', engineName);
   if (buildEngine && fs.existsSync(staged) && !newerSources(path.join(root, 'engine/src'), staged) && !newerSources(path.join(root, 'engine/include'), staged)) {
     fs.copyFileSync(staged, engine);
     buildEngine = false;
   }
   if (!buildEngine && !buildUI) return;
-  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'build.ps1')];
-  if (!buildEngine) args.push('-UiOnly');
-  if (!buildUI) args.push('-EngineOnly');
+  const args = process.platform === 'win32' ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'build.ps1')] : [path.join(root, 'build.sh')];
+  if (!buildEngine) args.push(process.platform === 'win32' ? '-UiOnly' : '--ui-only');
+  if (!buildUI) args.push(process.platform === 'win32' ? '-EngineOnly' : '--engine-only');
   await new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', args, { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.platform === 'win32' ? 'powershell.exe' : 'bash', args, { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     child.stdout.on('data', data => { output = (output + data).slice(-12000); });
     child.stderr.on('data', data => { output = (output + data).slice(-12000); });
@@ -84,9 +86,9 @@ async function ensureBuild() {
 
 async function ensureEngineRunning() {
   if (await portReady()) return;
-  const engineExe = path.join(__dirname, '../../engine/delta_engine.exe');
-  if (!fs.existsSync(engineExe)) throw new Error('Missing engine/delta_engine.exe. Run build.ps1.');
-  engineProcess = spawn(engineExe, [], { cwd: path.dirname(engineExe), stdio: 'ignore', windowsHide: true });
+  const engineExe = path.join(__dirname, '../../engine', engineName);
+  if (!fs.existsSync(engineExe)) throw new Error(`Missing engine/${engineName}. Run ${process.platform === 'win32' ? 'build.ps1' : 'build.sh'}.`);
+  engineProcess = spawn(engineExe, process.platform === 'linux' ? ['--bridge'] : [], { cwd: path.dirname(engineExe), stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });
   let launchError = null;
   engineProcess.once('error', error => { launchError = error; });
   for (let attempt = 0; attempt < 50; attempt++) {
