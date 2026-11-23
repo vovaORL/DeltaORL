@@ -2,6 +2,7 @@
 MetaEditor compilation remains the authority for MQL language compatibility.
 """
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ class MQLBridgeTests(unittest.TestCase):
             # Feed the actual EA's generated 200k fixture into the unmodified native engine.
             from test_integration import WS, free_port
             ws_port, mt5_port = free_port(), free_port()
-            engine = subprocess.Popen([str(ROOT / 'build/delta_engine'), '--bridge',
+            engine = subprocess.Popen([os.environ.get('DELTAORL_TEST_ENGINE', str(ROOT / 'build/delta_engine')), '--bridge',
                                        '--ws-port', str(ws_port), '--mt5-port', str(mt5_port)],
                                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             ws = None

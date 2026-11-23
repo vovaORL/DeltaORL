@@ -328,7 +328,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className={`header-toggle-btn ${showVerticalVolume ? 'active' : ''}`}
           onClick={onToggleVerticalVolume}
-          title="Вертикальний об'єм свічок з поділом на покупців і продавців"
+          title="Тиковий обсяг свічок з евристичним поділом Buy/Sell"
         >
           <AlignVerticalJustifyStart size={10} />
           <span>ОБ'ЄМ</span>

@@ -53,6 +53,15 @@ def fixture():
 
 
 class VerificationTests(unittest.TestCase):
+    def test_wire_flags_are_verified_when_present(self):
+        args, wire, snapshots = fixture()
+        for message in wire:
+            if message['line'].startswith('TICK;'):
+                message['line'] += ';2'
+        self.assertTrue(verify_mt5.verify(*args, wire=wire, snapshots=snapshots)['wire_verified'])
+        next(message for message in wire if message['line'].startswith('TICK;'))['line'] = next(message for message in wire if message['line'].startswith('TICK;'))['line'][:-1] + '4'
+        self.assertFalse(verify_mt5.verify(*args, wire=wire, snapshots=snapshots)['wire_verified'])
+
     def test_full_fixture_preserves_duplicate_multiplicity_and_compares_both_frames(self):
         args, wire, snapshots = fixture()
         report = verify_mt5.verify(*args, wire=wire, snapshots=snapshots)

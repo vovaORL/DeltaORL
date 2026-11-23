@@ -216,11 +216,12 @@ void MT5Receiver::parse_line(const std::string& line) {
     auto fields = split(line, ';');
     if (fields.empty()) return;
     const auto& kind = fields[0];
-    if (kind == "TICK" && fields.size() == 8) {
+    if (kind == "TICK" && (fields.size() == 8 || fields.size() == 9)) {
         Tick tick;
         tick.symbol = fields[1]; tick.time_msc = number<int64_t>(fields[2]); tick.price = number<double>(fields[3]); tick.volume = number<double>(fields[4]);
         int side = number<int>(fields[5]); tick.side = side == 1 ? TradeSide::Buy : (side == -1 ? TradeSide::Sell : TradeSide::Unknown);
         tick.bid = number<double>(fields[6]); tick.ask = number<double>(fields[7]);
+        if (fields.size() == 9) { tick.flags = number<uint32_t>(fields[8]); tick.has_flags = true; }
         if (tick.price <= 0 || tick.volume <= 0 || tick.time_msc <= 0) return;
         ++total_ticks_; if (tick_cb_) tick_cb_(tick);
     } else if (kind == "HELLO" && fields.size() >= 4) {

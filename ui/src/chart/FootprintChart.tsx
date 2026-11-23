@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { computeIndicators } from './indicators';
+import { priceCandleColor } from './priceCandleColor';
 import { Candle, ClusterDisplayMode, ChartThemeSettings, IndicatorHeights, defaultIndicatorHeights } from '../types';
 
 interface FootprintChartProps {
@@ -423,8 +424,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       const openY = priceToY(c.o);
       const closeY = priceToY(c.c);
 
-      // Candlestick coloring: Price Open/Close vs Net Delta (Delta River feature)
-      const isBullish = (theme.candleColorMode === 'DELTA') ? (c.d >= 0) : (c.c >= c.o);
+      const candleColor = priceCandleColor(c.o, c.c);
 
       const bodyTop = Math.min(openY, closeY);
       const bodyBottom = Math.max(openY, closeY);
@@ -439,7 +439,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       const barCenter = barX + barW / 2;
 
       // 1. Upper Shadow (Wick)
-      ctx.strokeStyle = isBullish ? theme.bullishCandleColor : theme.bearishCandleBorder;
+      ctx.strokeStyle = candleColor;
       ctx.lineWidth = theme.wickWidth ?? 1.5;
       ctx.beginPath();
       ctx.moveTo(barCenter, highY);
@@ -471,19 +471,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       }
 
       // 3. Candlestick Body (Classic Candlestick Bar)
-      if (isBullish) {
-        ctx.fillStyle = theme.bullishCandleColor;
-        ctx.fillRect(barX, bodyTop, barW, bodyHeight);
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(barX, bodyTop, barW, bodyHeight);
-      } else {
-        ctx.fillStyle = theme.bearishCandleColor;
-        ctx.fillRect(barX, bodyTop, barW, bodyHeight);
-        ctx.strokeStyle = theme.bearishCandleBorder;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(barX, bodyTop, barW, bodyHeight);
-      }
+      ctx.fillStyle = candleColor;
+      ctx.fillRect(barX, bodyTop, barW, bodyHeight);
 
       // Highlight Value Area in Candle if enabled
       if ((p.showValueArea || theme.showClusterValueArea) && c.val > 0 && c.vah > 0) {

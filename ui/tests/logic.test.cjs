@@ -61,3 +61,11 @@ test('StrictMode remount unsubscribes callbacks and reconnects once', () => {
   sockets[1].onopen();
   assert.ok(sockets[1].sent.some(data => data.action === 'get_snapshot'));
 });
+
+
+test('price candle colors depend only on open and close', () => {
+  const { priceCandleColor } = load('src/chart/priceCandleColor.ts');
+  assert.equal(priceCandleColor(1, 2), '#22c55e');
+  assert.equal(priceCandleColor(2, 1), '#ef4444');
+  assert.equal(priceCandleColor(1, 1), '#94a3b8');
+});

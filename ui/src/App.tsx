@@ -332,17 +332,21 @@ export const App: React.FC = () => {
                 </span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ОБ'ЄМ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>{latestCandle.unclassified_updates === undefined || latestCandle.unclassified_updates > 0 ? 'ОБ’ЄМ БЕЗ ПРАПОРЦІВ:' : 'TICK VOLUME:'}</span>
                 <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{latestCandle.v.toFixed(1)}</span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ПРОДАВЦІ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>ОНОВЛЕННЯ КОТИРУВАНЬ:</span>
+                <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{latestCandle.quote_updates ?? '—'}</span>
+              </div>
+              <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
+                <span style={{ color: '#64748B', marginRight: 4 }}>SELL (ОЦІНКА):</span>
                 <span style={{ color: '#E2E8F0', fontWeight: 600 }}>
                   {latestCandle.bv !== undefined ? latestCandle.bv.toFixed(1) : ((latestCandle.v - latestCandle.d) * 0.5).toFixed(1)}
                 </span>
               </div>
               <div className="metric-tag" style={{ background: 'rgba(12, 15, 20, 0.85)', border: '1px solid #1F2532', padding: '2px 8px', borderRadius: '3px', fontSize: '10.5px' }}>
-                <span style={{ color: '#64748B', marginRight: 4 }}>ПОКУПЦІ:</span>
+                <span style={{ color: '#64748B', marginRight: 4 }}>BUY (ОЦІНКА):</span>
                 <span style={{ color: '#E2E8F0', fontWeight: 600 }}>
                   {latestCandle.av !== undefined ? latestCandle.av.toFixed(1) : ((latestCandle.v + latestCandle.d) * 0.5).toFixed(1)}
                 </span>

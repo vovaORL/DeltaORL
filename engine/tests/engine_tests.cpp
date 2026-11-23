@@ -20,6 +20,17 @@ int main() {
         for (std::string invalid : {"{} trailing", "{\"a\":1,}", "{\"a\":01}", "{\"a\":NaN}", "{\"a\":1e999}", "{\"a\":1,\"a\":2}", "{\"a\":\"\\uD800\"}", "{\"a\":{}}", "[]"}) rejects([&] { JsonCommand bad(invalid); });
         require(json_quote("a\"b\\c\n") == "\"a\\\"b\\\\c\\n\"", "JSON escaping");
 
+        ClusterAggregator quotes("TEST", 1, 60);
+        auto q = tick(60000, 100, 99, TradeSide::Buy); q.has_flags = true; q.flags = 2;
+        quotes.process_tick(q);
+        q.time_msc++; q.flags = 4; q.price = 101; quotes.process_tick(q);
+        q.time_msc++; q.flags = 6; q.price = 102; q.side = TradeSide::Sell; quotes.process_tick(q);
+        auto quote_snapshot = quotes.serialize_snapshot_json();
+        require(quote_snapshot.find("\"v\":2") != std::string::npos && quote_snapshot.find("\"quote_updates\":3") != std::string::npos, "Bid count and quote updates");
+        require(quote_snapshot.find("\"h\":102") != std::string::npos && quote_snapshot.find("\"av\":1") != std::string::npos && quote_snapshot.find("\"bv\":1") != std::string::npos, "OHLC and estimated sides");
+        quotes.set_timeframe(120);
+        require(quotes.serialize_snapshot_json().find("\"v\":2") != std::string::npos, "Flagged history replay");
+
         ClusterAggregator a("TEST", 1, 60);
         a.process_tick(tick(60000, 100, 10, TradeSide::Sell));
         a.process_tick(tick(61000, 101, 40));

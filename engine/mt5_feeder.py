@@ -233,7 +233,7 @@ class MT5DirectFeeder:
             else:
                 side = 1 if price > self.last_price else -1
             self.last_price, self.last_side = price, side
-            lines.append(f"TICK;{self.current_symbol};{stamp};{price:.12g};{volume:.12g};{side};{bid:.12g};{ask:.12g}\n")
+            lines.append(f"TICK;{self.current_symbol};{stamp};{price:.12g};{volume:.12g};{side};{bid:.12g};{ask:.12g};{flags}\n")
             if len(lines) >= 2000:
                 self.send_line("".join(lines))
                 lines.clear()

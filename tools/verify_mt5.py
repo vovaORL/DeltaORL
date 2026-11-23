@@ -139,7 +139,9 @@ def verify(audit, events, reference, rates, requests, metadata, wire=None, snaps
             if phase != row['phase']:
                 problems.append(f'History/live phase mismatch at transmitted tick {index}')
             expected = [row['time_msc'], row['chart_price'], row['volume'], row['side'], row['bid'], row['ask']]
-            if len(fields) != 8 or fields[1] != metadata['symbol'] or any(not same_number(a, b) for a, b in zip(fields[2:], expected)):
+            if (len(fields) not in (8, 9) or fields[1] != metadata['symbol']
+                    or any(not same_number(a, b) for a, b in zip(fields[2:8], expected))
+                    or (len(fields) == 9 and not same_number(fields[8], row['flags']))):
                 problems.append(f'Wire fields/order mismatch at transmitted tick {index}')
         wire_verified = not problems
     start, end = int(sent[0]['time_msc']), int(audit[-1]['time_msc'])

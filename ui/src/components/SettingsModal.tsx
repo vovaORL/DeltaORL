@@ -8,7 +8,6 @@ import {
   defaultIndicatorHeights,
   ChartTemplate,
   BUILTIN_TEMPLATES,
-  CandleColorMode,
   GridLineStyle,
   ClusterFontSize
 } from '../types';
@@ -563,47 +562,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </label>
                 </div>
 
-                {/* Candle Coloring Mode: By Price vs By Delta (Delta River classic) */}
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: 6 }}>
-                    Режим забарвлення свічок:
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => handleSaveTheme({ ...theme, candleColorMode: 'PRICE' })}
-                      style={{
-                        background: (theme.candleColorMode !== 'DELTA') ? '#1E293B' : '#11141D',
-                        border: (theme.candleColorMode !== 'DELTA') ? '1px solid #00F59B' : '1px solid #1E2536',
-                        color: (theme.candleColorMode !== 'DELTA') ? '#00F59B' : '#94A3B8',
-                        padding: '7px 10px',
-                        borderRadius: '5px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      За ціною (Open vs Close)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSaveTheme({ ...theme, candleColorMode: 'DELTA' })}
-                      style={{
-                        background: (theme.candleColorMode === 'DELTA') ? '#1E293B' : '#11141D',
-                        border: (theme.candleColorMode === 'DELTA') ? '1px solid #00F59B' : '1px solid #1E2536',
-                        color: (theme.candleColorMode === 'DELTA') ? '#00F59B' : '#94A3B8',
-                        padding: '7px 10px',
-                        borderRadius: '5px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      За дельтою (Net Delta - Delta River)
-                    </button>
-                  </div>
-                </div>
-
                 {/* Sliders: Width, Gap, Wick Width, Wick Cap Width */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div>
@@ -681,41 +639,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* Candle Colors */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-                  <div>
-                    <label style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: 4 }}>
-                      Бичача свічка (Тіло & Тінь):
-                    </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="color"
-                        value={theme.bullishCandleColor}
-                        onChange={(e) => handleSaveTheme({ ...theme, bullishCandleColor: e.target.value })}
-                        style={{ width: 34, height: 30, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                      />
-                      <span style={{ fontSize: '12px', color: '#E2E8F0', fontFamily: 'monospace' }}>
-                        {theme.bullishCandleColor}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: 4 }}>
-                      Ведмежа свічка (Контур):
-                    </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="color"
-                        value={theme.bearishCandleBorder}
-                        onChange={(e) => handleSaveTheme({ ...theme, bearishCandleBorder: e.target.value })}
-                        style={{ width: 34, height: 30, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                      />
-                      <span style={{ fontSize: '12px', color: '#E2E8F0', fontFamily: 'monospace' }}>
-                        {theme.bearishCandleBorder}
-                      </span>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* 2. Стиль палітри гістограми об'ємів (Чорно-білий монохром vs Контрастний сталевий) */}
@@ -967,7 +890,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
                   <div>
                     <label style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: 4 }}>
-                      Покупці (Ask Volume):
+                      Buy (оцінка):
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -983,7 +906,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: 4 }}>
-                      Продавці (Bid Volume):
+                      Sell (оцінка):
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input

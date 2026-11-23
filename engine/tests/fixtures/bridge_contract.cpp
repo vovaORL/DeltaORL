@@ -3,7 +3,7 @@
 #include <random>
 #include <fstream>
 void require(bool condition,const char*message){if(!condition)throw std::runtime_error(message);}
-MqlTick tick(long ms,double bid=1.10001,double ask=1.10003){ms+=1794480000000;MqlTick t;t.time=ms/1000;t.time_msc=ms;t.bid=bid;t.ask=ask;t.volume=0;return t;}
+MqlTick tick(long ms,double bid=1.10001,double ask=1.10003){ms+=1794480000000;MqlTick t;t.time=ms/1000;t.time_msc=ms;t.bid=bid;t.ask=ask;t.volume=0;t.flags=2;return t;}
 int ticks_in_wire(){int n=0;for(size_t i=0;(i=wire.find("TICK;",i))!=string::npos;i+=5)n++;return n;}
 void reset(){
  append_on_boundary=false;mutate_on_boundary=false;source.clear();wire.clear();events.clear();copy_error=0;send_budget=-1;send_chunk=10000000;latest_ms=0;

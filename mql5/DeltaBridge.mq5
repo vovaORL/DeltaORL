@@ -70,8 +70,8 @@ string SideSource(const MqlTick &tick, const int side)
 }
 string FormatTickLine(const MqlTick &tick, const int side)
 {
-   return StringFormat("TICK;%s;%I64d;%.12f;%.8f;%d;%.12f;%.12f\n", _Symbol,
-                       tick.time_msc, ChartPrice(tick), LegacyVolume(tick), side, tick.bid, tick.ask);
+   return StringFormat("TICK;%s;%I64d;%.12f;%.8f;%d;%.12f;%.12f;%u\n", _Symbol,
+                       tick.time_msc, ChartPrice(tick), LegacyVolume(tick), side, tick.bid, tick.ask, tick.flags);
 }
 bool AuditTick(const MqlTick &tick, const int side, const string phase, const bool valid)
 {

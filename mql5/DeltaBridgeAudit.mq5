@@ -1,9 +1,8 @@
 // Read-only broker reference export. Never attaches an EA or sends trading requests.
 #property copyright "DeltaORL"
-#property version "1.00"
-#property script_show_inputs
-input long InpFromMsc = 0;
-input long InpToMsc = 0;
+#property version "1.01"
+const long InpFromMsc = 1795443300000;
+const long InpToMsc = 1795461539999;
 
 int OpenCsv(const string path)
 {
@@ -11,11 +10,11 @@ int OpenCsv(const string path)
 }
 void OnStart()
 {
-   MqlTick latest;
+   MqlTick latest = {};
    if(InpFromMsc <= 0 || InpToMsc < InpFromMsc ||
       !SymbolInfoTick(_Symbol, latest) || InpToMsc > latest.time_msc)
    {
-      Print("Set exact audit InpFromMsc/InpToMsc; the end cannot exceed the latest source tick.");
+      PrintFormat("Invalid audit interval: from=%I64d; to=%I64d; latest_tick=%I64d", InpFromMsc, InpToMsc, latest.time_msc);
       return;
    }
    string root = StringFormat("DeltaBridgeAudit\\%I64d-%I64u", (long)TimeLocal(), GetMicrosecondCount());
@@ -31,9 +30,10 @@ void OnStart()
       return;
    }
    long fromMs = InpFromMsc, toMs = InpToMsc;
-   FileWrite(metadata, "symbol", "digits", "chart_mode", "tick_size", "from_msc", "to_msc");
+   FileWrite(metadata, "symbol", "digits", "chart_mode", "tick_size", "from_msc", "to_msc", "server", "company", "latest_tick_msc");
    FileWrite(metadata, _Symbol, _Digits, SymbolInfoInteger(_Symbol, SYMBOL_CHART_MODE),
-             DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 12), fromMs, toMs);
+             DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 12), fromMs, toMs,
+             AccountInfoString(ACCOUNT_SERVER), AccountInfoString(ACCOUNT_COMPANY), latest.time_msc);
    FileWrite(ticks, "source_sequence", "time_msc", "bid", "ask", "last", "raw_volume", "volume_real", "flags");
    FileWrite(rates, "timeframe", "time", "open", "high", "low", "close", "tick_volume", "real_volume");
    FileWrite(requests, "kind", "from_msc", "to_msc", "count", "error");

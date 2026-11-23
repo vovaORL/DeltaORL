@@ -8,6 +8,8 @@ export interface Candle {
   l: number;
   c: number;
   v: number;
+  quote_updates?: number;
+  unclassified_updates?: number;
   bv: number; // Seller (Bid) Volume
   av: number; // Buyer (Ask) Volume
   d: number;
@@ -241,7 +243,7 @@ export const BUILTIN_TEMPLATES: ChartTemplate[] = [
   {
     id: 'order-flow-bid-ask',
     name: 'Order Flow Bid x Ask',
-    description: 'Повний поділ на покупців та продавців (Bid x Ask) з підсвічуванням діагональних дисбалансів',
+    description: 'Евристичний поділ Buy/Sell (Bid x Ask) з підсвічуванням діагональних дисбалансів',
     isBuiltIn: true,
     createdAt: 1700000002000,
     theme: {
